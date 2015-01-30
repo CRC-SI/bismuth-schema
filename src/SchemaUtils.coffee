@@ -60,6 +60,20 @@ memoizeObjectArg = (func) ->
     target = model.parameters ?= {}
     @setModifierProperty(target, paramId, value)
 
+  getParameterValues: (collection, paramId, args) ->
+    args = _.extend({
+      indexByValues: false
+    }, args)
+    values = {}
+    _.each Collections.getItems(collection), (model) ->
+      value = SchemaUtils.getParameterValue(model, paramId)
+      if args.indexByValues
+        models = values[value] ?= []
+        models.push(model)
+      else
+        values[model._id] = value
+    values
+
   # TODO(aramk) Move to objects util.
   getModifierProperty: (obj, property) ->
     target = obj
@@ -115,3 +129,4 @@ memoizeObjectArg = (func) ->
       collection.find({project: projectId})
     else
       throw new Error('Project ID not provided - cannot retrieve models.')
+
