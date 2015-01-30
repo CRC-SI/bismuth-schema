@@ -1,2 +1,2 @@
 # bismuth-schema
-A set of schemas for working with GIS apps.
+Schemas and collections for working with GIS apps.
