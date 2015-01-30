@@ -41,26 +41,46 @@ SimpleSchema.extendOptions
   GJm2: 'GJ/m2'
   GJm2year: 'GJ/m2/year'
   GJyear: 'GJ/year'
+  GJyearOccupant: 'GJ/year/occupant'
   ha: 'ha'
+  jobs: 'jobs'
   kgco2: 'kg CO_2-e'
+  kgco2day: 'kg CO_2-e/day'
+  kgco2kWh: 'kg CO_2-e/kWh'
+  kgco2km: 'kg CO_2-e/km'
   kgco2m2: 'kg CO_2-e/m^2'
+  kgco2year: 'kg CO_2-e/year'
   kW: 'kW'
   kWh: 'kWh'
   kWhday: 'kWh/day'
   kWhyear: 'kWh/year'
   kLyear: 'kL/year'
+  kLyearOccupant: 'kL/year/occupant'
   kLm2year: 'kL/m^2/year'
+  km: 'km'
+  kmday: 'km/day'
+  kmyear: 'km/year'
+  lanes: 'lanes'
   Lsec: 'L/second'
   Lyear: 'L/year'
   m: 'm'
   m2: 'm^2'
+  m2vehicle: 'm^2/vehicle'
+  m2job: 'm^2/job'
   mm: 'mm'
   MLyear: 'ML/year'
   MJ: 'MJ'
+  MJm2year: 'MJ/m^2/year'
   MJyear: 'MJ/year'
+  people: 'people'
+  spaces: 'spaces'
+  spacesm: 'spaces/m'
+  tripsday: 'trips/day'
+  tripsyear: 'trips/year'
+  vehicles: 'vehicles'
+  years: 'years'
 
-extendSchema = (orig, changes) ->
-  _.extend({}, orig, changes)
+extendSchema = (orig, changes) -> _.extend({}, orig, changes)
 
 # TODO(aramk) Can't use Strings or other utilities outside Meteor.startup since it's not loaded yet
 toTitleCase = (str) ->
@@ -83,37 +103,50 @@ autoLabel = (field, id) ->
 
 createCategorySchemaObj = (cat, catId, args) ->
   catSchemaFields = {}
-  # For each field in each category
-  for itemId, item of cat.items
+  hasRequiredField = false
+  _.each cat.items, (item, itemId) ->
     if item.items?
-      itemFields = createCategorySchemaObj(item, itemId, args)
+      result = createCategorySchemaObj(item, itemId, args)
+      if result.hasRequiredField
+        hasRequiredField = true
+      fieldSchema = result.schema
     else
-      # TODO(aramk) Set the default to 0 for numbers.
-      itemFields = _.extend({optional: true}, args.itemDefaults, item)
-      autoLabel(itemFields, itemId)
+      # Required fields must explicitly specify "optional" as false.
+      fieldSchema = _.extend({optional: true}, args.itemDefaults, item)
+      if fieldSchema.optional == false
+        hasRequiredField = true
+      autoLabel(fieldSchema, itemId)
       # If defaultValue is used, put it into "classes" to prevent SimpleSchema from storing this
       # value in the doc. We want to inherit this value at runtime for all classes, but not
       # persist it in multiple documents in case we want to change it later in the schema.
-      # TODO(aramk) Check if this is intended behaviour.
-      defaultValue = itemFields.defaultValue
+      defaultValue = fieldSchema.defaultValue
       if defaultValue?
-        classes = itemFields.classes ?= {}
+        classes = fieldSchema.classes ?= {}
+        # console.log('itemId', itemId)
+        # console.log('allClassOptions', allClassOptions)
+        # console.log('classes', classes)
         allClassOptions = classes.ALL ?= {}
+        # TODO(aramk) This block causes a strange issue where ALL.classes is defined with
+        # defaultValue already set, though it wasn't a step earlier...
         if allClassOptions.defaultValue?
-          throw new Error('Default value specified on field and in classOptions - only use one.')
+          # console.log('fieldSchema', fieldSchema)
+          # console.log('classes', classes)
+          # console.log('BuildingClasses', BuildingClasses)
+          # console.log('extend', extendBuildingClasses())
+          throw new Error('Default value specified on field ' + itemId + ' and in classOptions - only use one.')
+        # console.log('setting defualt value', allClassOptions)
         allClassOptions.defaultValue = defaultValue
-        delete itemFields.defaultValue
-    catSchemaFields[itemId] = itemFields
+        delete fieldSchema.defaultValue
+    catSchemaFields[itemId] = fieldSchema
   catSchema = new SimpleSchema(catSchemaFields)
   catSchemaArgs = _.extend({
-  # TODO(aramk) This should be optional: false, but an update to SimpleSchema is causing edits to
-  # these fields to fail during validation, since cleaning doesn't run for modifier objects.
-    optional: true
-    defaultValue: {}
+    # If a single field is required, the entire category is marked required. If no fields are
+    # required, the category can be omitted.
+    optional: !hasRequiredField
   }, args.categoryDefaults, cat, {type: catSchema})
   autoLabel(catSchemaArgs, catId)
   delete catSchemaArgs.items
-  catSchemaArgs
+  {hasRequiredField: hasRequiredField, schema: catSchemaArgs}
 
 # Constructs SimpleSchema fields which contains all categories and each category is it's own
 # SimpleSchema.
@@ -130,6 +163,17 @@ createCategoriesSchemaFields = (args) ->
   catsFields
 
 createCategoriesSchema = (args) -> new SimpleSchema(createCategoriesSchemaFields(args))
+
+forEachCategoryField = (category, callback) ->
+  for itemId, item of category.items
+    if item.items?
+      forEachCategoryField(item, callback)
+    else
+      callback(itemId, item, category)
+
+forEachCategoriesField = (categories, callback) ->
+  for catId, category of categories
+    forEachCategoryField(category, callback)
 
 mergeObjectsWithTemplate = (args) ->
   template = args.template
@@ -151,7 +195,6 @@ mergeDefaultsWithTemplate = (args) ->
 descSchema =
   label: 'Description'
   type: String
-  optional: true
 
 projectSchema =
   label: 'Project'
@@ -172,11 +215,24 @@ elevationSchema =
   units: Units.m
 
 calcArea = (id) ->
-  entity = AtlasManager.getEntity(id)
-  if entity
-    entity.getArea()
+  feature = AtlasManager.getEntity(id)
+  if feature
+    target = feature.getForm('footprint')
+    unless target
+      target = feature.getForm('mesh')
+    unless target
+      throw new Error('GeoEntity was found but no footprint or mesh exists - cannot calculate ' +
+        'area.')
+    target.getArea()
   else
     throw new Error('GeoEntity not found - cannot calculate area.')
+
+calcLength = (id) ->
+  feature = AtlasManager.getEntity(id)
+  line = feature.getForm('line')
+  unless line
+    throw new Error('Cannot calculate length of non-line GeoEntity with ID ' + id)
+  line.getLength()
 
 areaSchema =
   label: 'Area'
@@ -259,11 +315,17 @@ ProjectSchema = new SimpleSchema
   dateModified:
     label: 'Date Modified'
     type: Date
+  isTemplate:
+    label: 'Template?'
+    type: Boolean
+    defaultValue: false
 
-@Projects = new Meteor.Collection 'projects'
+Projects = new Meteor.Collection 'projects'
 Projects.attachSchema(ProjectSchema)
 Projects.allow(Collections.allowAll())
-AccountsAurin.addCollectionAuthorization(Projects)
+AccountsAurin.addCollectionAuthorization Projects,
+  # A user has access to their own projects as well as any templates.
+  userSelector: (args) -> {$or: [{author: args.username}, {isTemplate: true}]}
 
 if Meteor.isClient
   reactiveProject = new ReactiveVar(null)
@@ -291,14 +353,11 @@ Projects.setLocationCoords = (id, location) ->
   }, (err, result) -> if err then df.reject(err) else df.resolve(result)
   df.promise
 
-Projects.getDefaultParameterValues = _.memoize ->
-  values = {}
-  SchemaUtils.forEachFieldSchema ProjectParametersSchema, (fieldSchema, paramId) ->
-    # Default value is stored in the "classes" object to avoid being used by SimpleSchema.
-    defaultValue = fieldSchema.classes?.ALL?.defaultValue
-    if defaultValue?
-      values[paramId] = defaultValue
-  SchemaUtils.unflattenParameters(values, false)
+# Template Projects
+
+Projects.before.insert = (userId, doc) ->
+  if doc.isTemplate && !AuthUtils.isAdmin(userId)
+    throw new Error('Only admin user can create template project.')
 
 ####################################################################################################
 # TYPOLOGY SCHEMA DEFINITION
@@ -330,7 +389,7 @@ TypologySchema = new SimpleSchema
     defaultValue: {}
   project: projectSchema
 
-@Typologies = new Meteor.Collection 'typologies'
+Typologies = new Meteor.Collection 'typologies'
 Typologies.attachSchema(TypologySchema)
 Typologies.allow(Collections.allowAll())
 Typologies.findByProject = (projectId) -> SchemaUtils.findByProject(Typologies, projectId)
@@ -343,13 +402,6 @@ Typologies.findByName = (name, projectId) ->
 ####################################################################################################
 
 entityCategories =
-  general:
-    items:
-      type:
-        type: String
-        index: true
-        # allowedValues: Object.keys(EntityTypes)
-        optional: true
   space:
     items:
       geom_2d:
@@ -384,20 +436,6 @@ entityCategories =
 
 ParametersSchemaFields = createCategoriesSchemaFields
   categories: entityCategories
-# Dynamic parameters
-_.extend ParametersSchemaFields,
-  inputs:
-    label: 'Input Parameters'
-    desc: 'Input values used in analysis.'
-    type: Object
-    blackbox: true
-    defaultValue: {}
-  outputs:
-    label: 'Output Parameters'
-    desc: 'Output values calculated by analysis services.'
-    type: Object
-    blackbox: true
-    defaultValue: {}
 @ParametersSchema = new SimpleSchema(ParametersSchemaFields)
 
 parametersSchema = Object.freeze
@@ -412,6 +450,10 @@ EntitySchema = new SimpleSchema
     type: String
     index: true
   desc: descSchema
+  typology:
+    label: 'Typology'
+    type: String
+    collectionType: 'Typologies'
   parameters: parametersSchema
   parent:
     type: String
@@ -426,11 +468,14 @@ EntitySchema = new SimpleSchema
   # Typlogies from ESP if we expect them to be user-defined.
   project: projectSchema
 
-@Entities = new Meteor.Collection 'entities'
+Entities = new Meteor.Collection 'entities'
 Entities.attachSchema(EntitySchema)
 Entities.allow(Collections.allowAll())
+
 Entities.resolveTypeId = (type) -> type.toLowerCase().replace(/\s+/g, '_')
+
 Entities.findByProject = (projectId) -> SchemaUtils.findByProject(Entities, projectId)
+
 Entities.findByProjectAndScenario = (projectId, scenarioId) ->
   # NOTE: Always use Entities.findByProject() for a cursor on all entities as scenarios are
   # switched. Entities.findByProjectAndScenario() should only be used for publishing or when
@@ -444,7 +489,9 @@ Entities.findByProjectAndScenario = (projectId, scenarioId) ->
     Entities.find({scenario: scenarioId, project: projectId})
   else
     Entities.find({scenario: {$exists: false}, project: projectId})
-Entities.findByTypology = (typologyId) -> Entities.find({'parameters.general.type': typologyId})
+
+Entities.findByTypology = (typologyId) -> Entities.find({typology: typologyId})
+
 Entities.getInputNames = (collection) ->
   entities = Collections.getItems(collection)
   allInputs = {}
@@ -452,7 +499,35 @@ Entities.getInputNames = (collection) ->
     _.each entity.parameters.inputs, (value, key) ->
       allInputs[key] = true
   Object.keys(allInputs)
+
 Entities.getChildren = (parentId) -> Entities.find({parent: parentId})
+
+Entities.getFlattened = (id) ->
+  entity = Entities.findOne(id)
+  Entities.mergeTypology(entity)
+  entity
+
+Entities.getAllFlattenedInProject = (filter) ->
+  entities = Entities.findByProject().fetch()
+  if filter
+    entities = _.filter entities, filter
+  _.map entities, (entity) -> Entities.getFlattened(entity._id)
+
+Entities.mergeTypology = (entity) ->
+  typologyId = entity.typology
+  if typologyId?
+    typology = Typologies.findOne(typologyId)
+    Entities.mergeTypologyObj(entity, typology)
+  entity
+
+Entities.mergeTypologyObj = (entity, typology) ->
+  if typology?
+    entity._typology = typology
+    SchemaUtils.mergeDefaultParameterValues(typology, Typologies)
+    entity.parameters ?= {}
+    Setter.defaults(entity.parameters, typology.parameters)
+    Typologies.filterParameters(entity)
+  entity
 
 ####################################################################################################
 # LAYERS
@@ -467,7 +542,7 @@ LayerSchema = new SimpleSchema
   parameters: parametersSchema
   project: projectSchema
 
-@Layers = new Meteor.Collection 'layers'
+Layers = new Meteor.Collection 'layers'
 Layers.attachSchema(LayerSchema)
 Layers.allow(Collections.allowAll())
 Layers.findByProject = (projectId) -> SchemaUtils.findByProject(Layers, projectId)
@@ -484,7 +559,7 @@ ScenarioSchema = new SimpleSchema
   desc: descSchema
   project: projectSchema
 
-@Scenarios = new Meteor.Collection 'scenarios'
+Scenarios = new Meteor.Collection 'scenarios'
 Scenarios.attachSchema(ScenarioSchema)
 Scenarios.allow(Collections.allowAll())
 Scenarios.findByProject = (projectId) -> SchemaUtils.findByProject(Scenarios, projectId)
@@ -511,7 +586,7 @@ ReportSchema = new SimpleSchema
     blackbox: true
   project: projectSchema
 
-@Reports = new Meteor.Collection 'reports'
+Reports = new Meteor.Collection 'reports'
 Reports.attachSchema(ReportSchema)
 Reports.allow(Collections.allowAll())
 Reports.findByProject = (projectId) -> SchemaUtils.findByProject(Reports, projectId)
@@ -548,6 +623,33 @@ if Meteor.isClient
     map = Session.get(reportsLastOpenedSessionVarName)
     delete map[projectId]
     Session.setPersistent(reportsLastOpenedSessionVarName, map)
+
+# Listen for changes to Entities or Typologies and refresh reports.
+_reportRefreshSubscribed = false
+subscribeRefreshReports = ->
+  return if _reportRefreshSubscribed
+  _.each [
+    {collection: Entities, observe: ['added', 'changed', 'removed']}
+    {collection: Typologies, observe: ['changed']}
+  ], (args) ->
+    collection = args.collection
+    shouldRefresh = false
+    refreshReport = ->
+      if shouldRefresh
+        # TODO(aramk) Report refreshes too soon and geo entity is being reconstructed after an
+        # update. This delay is a quick fix, but we should use promises.
+        setTimeout (-> PubSub.publish('report/refresh')), 1000
+    cursor = collection.find()
+    _.each _.unique(args.observe), (methodName) ->
+      observeArgs = {}
+      observeArgs[methodName] = refreshReport
+      cursor.observe(observeArgs)
+    # TODO(aramk) Temporary solution to prevent refreshing due to added callback firing for all
+    # existing docs.
+    shouldRefresh = true
+    _reportRefreshSubscribed = true
+# Refresh only if a report has been rendered before.
+PubSub.subscribe 'report/rendered', subscribeRefreshReports
 
 ####################################################################################################
 # ASSOCIATION MAINTENANCE
