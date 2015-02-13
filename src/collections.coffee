@@ -122,19 +122,11 @@ createCategorySchemaObj = (cat, catId, args) ->
       defaultValue = fieldSchema.defaultValue
       if defaultValue?
         classes = fieldSchema.classes ?= {}
-        # console.log('itemId', itemId)
-        # console.log('allClassOptions', allClassOptions)
-        # console.log('classes', classes)
         allClassOptions = classes.ALL ?= {}
         # TODO(aramk) This block causes a strange issue where ALL.classes is defined with
         # defaultValue already set, though it wasn't a step earlier...
         if allClassOptions.defaultValue?
-          # console.log('fieldSchema', fieldSchema)
-          # console.log('classes', classes)
-          # console.log('BuildingClasses', BuildingClasses)
-          # console.log('extend', extendBuildingClasses())
           throw new Error('Default value specified on field ' + itemId + ' and in classOptions - only use one.')
-        # console.log('setting defualt value', allClassOptions)
         allClassOptions.defaultValue = defaultValue
         delete fieldSchema.defaultValue
     catSchemaFields[itemId] = fieldSchema
@@ -158,8 +150,8 @@ createCategoriesSchemaFields = (args) ->
   # For each category in the schema.
   catsFields = {}
   for catId, cat of cats
-    catSchemaArgs = createCategorySchemaObj(cat, catId, args)
-    catsFields[catId] = catSchemaArgs
+    result = createCategorySchemaObj(cat, catId, args)
+    catsFields[catId] = result.schema
   catsFields
 
 createCategoriesSchema = (args) -> new SimpleSchema(createCategoriesSchemaFields(args))
