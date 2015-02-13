@@ -1,4 +1,4 @@
-@ParamUtils =
+ParamUtils =
   
   _prefix: 'parameters'
   _rePrefix: /^parameters\./
