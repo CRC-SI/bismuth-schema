@@ -21,21 +21,18 @@ Package.on_use(function(api) {
   // Using Depends utility is necessary to gain access to asynchronously defined modules.
   api.imply('aramk:utility');
   api.addFiles([
-    // 'src/Layers.coffee',
-    // 'src/ParamUtils.coffee',
+    'src/Entities.coffee',
+    'src/Layers.coffee',
     'src/Projects.coffee',
-    'src/SchemaUtils.coffee',
-    'src/Units.coffee'
+    'src/Reports.coffee',
+    'src/Scenarios.coffee',
+    'src/Typologies.coffee',
+    'src/Units.coffee',
+    'src/schemas/EntitySchema.coffee',
+    'src/schemas/TypologySchema.coffee',
+    'src/util/SchemaUtils.coffee',
+    'src/util/ParamUtils.coffee'
   ], ['client', 'server']);
   api.export([
-    // 'Layers',
-    // 'ParamUtils'
-    // 'Projects',
-    // 'Typologies',
-    // 'Entities',
-    // 'Scenarios',
-    // 'Reports',
-    // 'SchemaUtils',
-    // 'Units',
   ], ['client', 'server']);
 });

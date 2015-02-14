@@ -1,6 +1,6 @@
 global = @
 
-Depends.define 'SchemaUtils', =>
+Depends.define 'SchemaUtils', ['Units'], (Units) ->
 
   # TODO(aramk) Move this to Objects utility.
   # Adds support for using object arguments with _.memoize().
