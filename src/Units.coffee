@@ -54,5 +54,3 @@ Units =
   tripsyear: 'trips/year'
   vehicles: 'vehicles'
   years: 'years'
-
-Depends.define 'Units', Units
