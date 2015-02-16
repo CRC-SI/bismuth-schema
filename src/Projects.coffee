@@ -1,5 +1,3 @@
-# Depends.define 'Projects', ['SchemaUtils', 'Units'], (SchemaUtils, Units) ->
-
 projectCategories =
 location:
   label: 'Location'
