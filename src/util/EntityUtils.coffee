@@ -144,7 +144,6 @@ EntityUtils =
           _.each sortedIds, (c3mlId, c3mlIndex) ->
             c3ml = c3mlMap[c3mlId]
             entityParams = c3ml.properties ? {}
-            # TODO(aramk) Remove this hack and provide parameter mapping.
             height = entityParams.height ? entityParams.Height ? entityParams.HEIGHT ?
               entityParams.ROOMHEIGHT ? c3ml.height
             elevation = entityParams.Elevation ? entityParams.FLOORRL ? c3ml.altitude
@@ -477,8 +476,8 @@ EntityUtils =
   renderAll: ->
     df = Q.defer()
     renderingEnabledDf.promise.then bindMeteor =>
-      renderDfs = []
-      models = Entities.findByProject().fetch()
+      # renderDfs = []
+      # models = Entities.findByProject().fetch()
       @_chooseDisplayMode()
       # _.each models, (model) => renderDfs.push(@render(model._id))
       # df.resolve(Q.all(renderDfs))
@@ -489,8 +488,6 @@ EntityUtils =
     df = Q.defer()
     entities = Entities.findByProject().fetch()
     project = Projects.getCurrent()
-    # TODO(aramk) Remove this - just for testing.
-    # entities = entities.slice(0, 200)
     WKT.getWKT (wkt) =>
       c3mlEntities = []
 
@@ -550,15 +547,16 @@ EntityUtils =
         if geom2dId || geom3dId
           forms = {}
           if geom2dId
-            forms.footprint = geom2dId
+            forms.polygon = geom2dId
           if geom3dId
             forms.mesh = geom3dId
+          displayMode = @getDisplayMode(entity._id)
           c3mlEntities.push
             id: id
             type: 'feature'
+            displayMode: displayMode
             forms: forms
 
-      console.log('c3mlEntities', c3mlEntities.length)
       df.resolve(AtlasManager.renderEntities(c3mlEntities))
     df.promise
 
@@ -566,13 +564,13 @@ EntityUtils =
     df = Q.defer()
     @renderAll().then(
       bindMeteor (c3mlEntities) =>
+        df.resolve(c3mlEntities)
         if c3mlEntities.length == 0
-          df.resolve(ProjectUtils.zoomTo())
+          ProjectUtils.zoomTo()
         else
           # If no entities have geometries, this will fail, so we should zoom to the project if
           # possible.
           promise = @zoomToEntities()
-          df.resolve(promise)
           promise.fail(-> ProjectUtils.zoomTo()).done()
       df.reject
     )
@@ -616,19 +614,24 @@ EntityUtils =
 
   show: (id) ->
     if AtlasManager.showEntity(id)
-      ids = @_getChildrenIds(id)
+      ids = @_getChildrenFeatureIds(id)
       ids.push(id)
       _.each ids, (id) -> PubSub.publish('entity/show', id)
 
   hide: (id) ->
     if AtlasManager.hideEntity(id)
-      ids = @_getChildrenIds(id)
+      ids = @_getChildrenFeatureIds(id)
       ids.push(id)
       _.each ids, (id) -> PubSub.publish('entity/hide', id)
 
-  _getChildrenIds: (id) ->
-    entity = AtlasManager.getEntity(id)
-    _.map entity?.getChildren(), (child) -> child.getId()
+  _getChildrenFeatureIds: (id) ->
+    entity = AtlasManager.getFeature(id)
+    childIds = []
+    _.each entity?.getChildren(), (child) ->
+      childId = child.getId()
+      child = AtlasManager.getFeature(childId)
+      if child then childIds.push(childId)
+    childIds
 
   getSelectedIds: ->
     # Use the selected entities, or all entities in the project.
