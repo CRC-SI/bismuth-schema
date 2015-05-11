@@ -479,11 +479,13 @@ EntityUtils =
       if geoEntity.setDisplayMode? && displayMode
         geoEntity.setDisplayMode(displayMode)
       if parentId
-        @render(parentId).then (parentEntity) ->
+        @render(parentId).then (parentEntity) =>
           unless geoEntity.getParent()
             parentEntity.addEntity(id)
-      # Setting the display mode isn't enough to show the entity if we rendered a hidden geometry.
-      @show(id)
+          @show(parentId)
+      else
+        # Setting the display mode isn't enough to show the entity if we rendered a hidden geometry.
+        @show(id)
     df.promise.fail ->
       # Remove any entities which failed to render to avoid leaving them within Atlas.
       console.error('Failed to render entity ' + id)
@@ -547,11 +549,19 @@ EntityUtils =
 
   show: (id) ->
     if AtlasManager.showEntity(id)
-      PubSub.publish('entity/show', id)
+      ids = @_getChildrenIds(id)
+      ids.push(id)
+      _.each ids, (id) -> PubSub.publish('entity/show', id)
 
   hide: (id) ->
     if AtlasManager.hideEntity(id)
-      PubSub.publish('entity/hide', id)
+      ids = @_getChildrenIds(id)
+      ids.push(id)
+      _.each ids, (id) -> PubSub.publish('entity/hide', id)
+
+  _getChildrenIds: (id) ->
+    entity = AtlasManager.getEntity(id)
+    _.map entity?.getChildren(), (child) -> child.getId()
 
   getSelectedIds: ->
     # Use the selected entities, or all entities in the project.
