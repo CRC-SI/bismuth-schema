@@ -20,7 +20,7 @@ Entities.findByProjectAndScenario = (projectId, scenarioId) ->
   else
     Entities.find({scenario: {$exists: false}, project: projectId})
 
-Entities.findByTypology = (typologyId) -> Entities.find({typology: typologyId})
+Entities.findByTypology = (typologyId) -> Entities.find({'parameters.general.type': typologyId})
 
 Entities.getInputNames = (collection) ->
   entities = Collections.getItems(collection)
@@ -44,7 +44,7 @@ Entities.getAllFlattenedInProject = (filter) ->
   _.map entities, (entity) -> Entities.getFlattened(entity._id)
 
 Entities.mergeTypology = (entity) ->
-  typologyId = entity.typology
+  typologyId = SchemaUtils.getParameterValue(entity, 'parameters.general.type')
   if typologyId?
     typology = Typologies.findOne(typologyId)
     Entities.mergeTypologyObj(entity, typology)

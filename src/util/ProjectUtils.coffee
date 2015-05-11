@@ -7,7 +7,7 @@ incrementName = (name) ->
   else
     name + ' 2'
 
-@ProjectUtils =
+ProjectUtils =
 
 # @param {String} id - The ID of the project to serialize.
 # @returns {Object} JSON serialization of the given project and its models. IDs are unaltered.
@@ -129,6 +129,10 @@ incrementName = (name) ->
       address = Projects.getLocationAddress(projectId)
       console.debug 'Loading project address', address
       AtlasManager.zoomTo {address: address}
+
+  remove: (id) ->
+    Meteor.call 'projects/remove', id, (err, result) ->
+      Reports.removeLastOpened(id) unless err
 
   getDatedIdentifier: (id) ->
     id ?= Projects.getCurrentId()

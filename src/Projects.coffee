@@ -60,28 +60,28 @@ location:
       desc: 'The starting elevation of the camera when viewing the project.'
     
 ParametersSchema = SchemaUtils.createCategoriesSchema
-categories: projectCategories
+  categories: projectCategories
 
 ProjectSchema = new SimpleSchema
-name:
-  type: String
-  index: true
-  unique: false
-desc: SchemaUtils.descSchema()
-author:
-  type: String
-  index: true
-parameters:
-  label: 'Parameters'
-  type: ParametersSchema
-  defaultValue: {}
-dateModified:
-  label: 'Date Modified'
-  type: Date
-isTemplate:
-  label: 'Template?'
-  type: Boolean
-  defaultValue: false
+  name:
+    type: String
+    index: true
+    unique: false
+  desc: SchemaUtils.descSchema()
+  author:
+    type: String
+    index: true
+  parameters:
+    label: 'Parameters'
+    type: ParametersSchema
+    defaultValue: {}
+  dateModified:
+    label: 'Date Modified'
+    type: Date
+  isTemplate:
+    label: 'Template?'
+    type: Boolean
+    defaultValue: false
 
 Projects = new Meteor.Collection 'projects'
 Projects.attachSchema(ProjectSchema)

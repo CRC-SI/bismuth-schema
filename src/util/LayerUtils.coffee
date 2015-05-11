@@ -170,7 +170,6 @@ LayerUtils =
     _.filter entityIds, (id) -> Layers.findOne(id)
 
   beforeAtlasUnload: ->
-    resetRenderQueue()
     @resetRenderCount()
 
   getRenderCount: -> renderCount.get()

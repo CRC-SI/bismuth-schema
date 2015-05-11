@@ -102,12 +102,6 @@ EntityUtils =
         entityId = c3ml.id
         c3mlMap[entityId] = c3ml
         entityParams = c3ml.properties ? {}
-        # TODO(aramk) Use the ID given by ACS instead of attempting to name it here.
-        modelId = entityParams.OBJECTID ? entityParams.id
-        # If the ID is a float value, remove the decimals.
-        idIsNumber = Strings.isNumber(modelId)
-        if idIsNumber
-          modelId = parseFloat(modelId).toString().replace(/\.\d+$/, '')
         modelDf = Q.defer()
         modelDfs.push(modelDf.promise)
         entityDfMap[entityId] = modelDf
@@ -165,7 +159,7 @@ EntityUtils =
 
       Q.all(_.values(geomDfMap)).then(
         bindMeteor ->
-          _.each sortedIds, (c3mlId) ->
+          _.each sortedIds, (c3mlId, c3mlIndex) ->
             c3ml = c3mlMap[c3mlId]
             entityParams = c3ml.properties ? {}
             # TODO(aramk) Remove this hack and provide parameter mapping.
@@ -202,10 +196,13 @@ EntityUtils =
                   fillColor = entityParams.FILLCOLOR ? (!typeId && c3ml.color)
                   borderColor = entityParams.BORDERCOLOR ? (!typeId && c3ml.borderColor)
                   AtlasConverter.getInstance().then bindMeteor (converter) ->
+                    getDefaultName = 'Entity ' + (c3mlIndex + 1)
                     name = c3ml.name ? entityParams.Name ? entityParams.NAME ?
-                      entityParams.BUILDINGKE ? entityParams.name ? modelId ? c3mlId
-                    fill_color = converter.colorFromC3mlColor(fillColor).toString() if fillColor
-                    border_color = converter.colorFromC3mlColor(borderColor).toString() if borderColor
+                      entityParams.BUILDINGKE ? entityParams.name ? getDefaultName
+                    if fillColor
+                      fill_color = converter.colorFromC3mlColor(fillColor).toString()
+                    if borderColor
+                      border_color = converter.colorFromC3mlColor(borderColor).toString()
                     model =
                       name: name
                       project: projectId
@@ -226,7 +223,8 @@ EntityUtils =
                         # idMap[c3mlId] = insertedId
                         insertedCount++
                         if insertedCount % 100 == 0 || insertedCount == c3mls.length
-                          Logger.debug('Inserted ' + insertedCount + '/' + c3mls.length + ' entities')
+                          Logger.debug('Inserted ' + insertedCount + '/' + c3mls.length +
+                              ' entities')
                         modelDf.resolve(insertId)
 
               if typeName
@@ -306,17 +304,30 @@ EntityUtils =
   _getGeometryFromFile: (id, paramId) ->
     paramId ?= 'geom_3d'
     entity = Entities.findOne(id)
-    fileId = SchemaUtils.getParameterValue(entity, 'space.' + paramId)
-    if fileId then Files.downloadJson(fileId) else Q.when(null)
+    value = SchemaUtils.getParameterValue(entity, 'space.' + paramId)
+    unless value then return Q.resolve(null)
+    # Attempt to parse the value as JSON. If it fails, treat it as a file ID.
+    try
+      return Q.resolve(JSON.parse(value))
+    catch
+      # Do nothing
+    Files.downloadJson(value)
 
   _buildGeometryFromFile: (id, paramId) ->
-    paramId ?= 'geom_3d'
-    entity = Entities.findOne(id)
-    fileId = SchemaUtils.getParameterValue(entity, 'space.' + paramId)
-    unless fileId
-      return Q.when(null)
+    # paramId ?= 'geom_3d'
+    # entity = Entities.findOne(id)
+    # fileId = SchemaUtils.getParameterValue(entity, 'space.' + paramId)
+    # unless fileId
+    #   return Q.when(null)
+    # GeometryUtils.buildGeometryFromFile(fileId, {collectionId: collectionId})
     collectionId = id + '-' + paramId
-    GeometryUtils.buildGeometryFromFile(fileId, {collectionId: collectionId})
+    df = Q.defer()
+    @_getGeometryFromFile(id, paramId).then(
+      (geom) ->
+        df.resolve(GeometryUtils.buildGeometryFromC3ml(geom, {collectionId: collectionId}))
+      df.reject
+    )
+    df.promise
 
   _render2dGeometry: (id) ->
     entity = Entities.findOne(id)
@@ -442,10 +453,11 @@ EntityUtils =
                 @toGeoEntityArgs(id, {vertices: null}).then(
                   bindMeteor (args) ->
                     geoEntity = AtlasManager.renderEntity(args)
-                    geoEntity.setForm(Feature.DisplayMode.FOOTPRINT, entity2d)
                     addedGeometry.push(geoEntity)
-                    args.height? && entity2d.setHeight(args.height)
-                    args.elevation? && entity2d.setElevation(args.elevation)
+                    if entity2d
+                      geoEntity.setForm(Feature.DisplayMode.FOOTPRINT, entity2d)
+                      args.height? && entity2d.setHeight(args.height)
+                      args.elevation? && entity2d.setElevation(args.elevation)
                     geoEntityDf.resolve(geoEntity)
                   geoEntityDf.reject
                 )
@@ -479,13 +491,16 @@ EntityUtils =
     df.promise
 
   renderAll: ->
-    renderDfs = []
-    models = Entities.findByProject().fetch()
-    _.each models, (model) => renderDfs.push(@render(model._id))
-    Q.all(renderDfs)
+    df = Q.defer()
+    renderingEnabledDf.promise.then bindMeteor =>
+      renderDfs = []
+      models = Entities.findByProject().fetch()
+      @_chooseDisplayMode()
+      _.each models, (model) => renderDfs.push(@render(model._id))
+      df.resolve(Q.all(renderDfs))
+    df.promise
 
   renderAllAndZoom: ->
-    @_chooseDisplayMode()
     if Entities.findByProject().count() != 0
       @renderAll().then bindMeteor =>
         # If no entities have geometries, this will fail, so we should zoom to the project if

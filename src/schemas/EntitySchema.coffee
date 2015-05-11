@@ -1,4 +1,10 @@
 entityCategories =
+  general:
+    items:
+      type:
+        type: String
+        index: true
+        optional: true
   space:
     items:
       geom_2d:
@@ -19,9 +25,8 @@ entityCategories =
         desc: 'The name of the file representing the 3D geometry.'
       height: SchemaUtils.heightSchema()
       elevation: SchemaUtils.elevationSchema()
-      fpa: SchemaUtils.extendSchema(SchemaUtils.areaSchema(), {
+      fpa: SchemaUtils.extendSchema SchemaUtils.areaSchema(),
         label: 'Footprint Area'
-      })
   style:
     items:
       fill_color:
@@ -61,10 +66,6 @@ EntitySchema = new SimpleSchema
     type: String
     index: true
   desc: SchemaUtils.descSchema()
-  typology:
-    label: 'Typology'
-    type: String
-    collectionType: 'Typologies'
   parameters: parametersSchemaField
   parent:
     type: String
