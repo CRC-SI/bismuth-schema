@@ -29,6 +29,7 @@ Package.on_use(function(api) {
   api.addFiles([
     'src/Units.coffee',
     'src/util/SchemaUtils.coffee',
+    'src/util/ProjectUtils.coffee',
     'src/Projects.coffee',
     'src/util/ScenarioUtils.coffee',
     'src/Scenarios.coffee',
@@ -38,11 +39,20 @@ Package.on_use(function(api) {
     'src/Layers.coffee',
     'src/Entities.coffee',
     'src/util/ParamUtils.coffee',
-    'src/Reports.coffee'
+    'src/Reports.coffee',
+    'src/util/EntityUtils.coffee',
+    'src/util/LayerUtils.coffee',
+    'src/util/CollectionUtils.coffee'
   ], ['client', 'server']);
+  api.addFiles([
+    'src/server/projects.coffee',
+    'src/server/publications.coffee',
+    'src/server/scenarios.coffee'
+  ], ['server']);
   api.export([
     'Units',
     'SchemaUtils',
+    'ProjectUtils',
     'Projects',
     'ScenarioUtils',
     'Scenarios',
@@ -52,6 +62,9 @@ Package.on_use(function(api) {
     'Layers',
     'Entities',
     'ParamUtils',
-    'Reports'
+    'Reports',
+    'EntityUtils',
+    'LayerUtils',
+    'CollectionUtils'
   ], ['client', 'server']);
 });

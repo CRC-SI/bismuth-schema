@@ -8,7 +8,7 @@ LayerSchema = new SimpleSchema
     optional: true
   desc: SchemaUtils.descSchema()
   parameters: EntitySchema.parametersSchemaField
-project: SchemaUtils.projectSchema()
+  project: SchemaUtils.projectSchema()
 
 Layers = new Meteor.Collection 'layers'
 Layers.attachSchema(LayerSchema)

@@ -227,6 +227,7 @@ SchemaUtils =
   descSchema: ->
     label: 'Description'
     type: String
+    optional: true
 
   projectSchema: ->
     label: 'Project'
