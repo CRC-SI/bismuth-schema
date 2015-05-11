@@ -98,6 +98,7 @@ EntityUtils =
               typeDf.resolve(typeId)
         typeDf.promise
 
+      console.log('c3mls', c3mls.length)
       _.each c3mls, (c3ml, i) ->
         entityId = c3ml.id
         c3mlMap[entityId] = c3ml
@@ -111,32 +112,13 @@ EntityUtils =
         parentId = c3ml.parentId
         if parentId
           edges.push([parentId, entityId])
-          sortMap[parentId] = sortMap[parentId] = true
+          sortMap[parentId] = sortMap[entityId] = true
         # Create a pseudo-filename so the data is detected as a File rather than serialized JSON or
         # WKT.
         filename = entityId + '.json'
         if type == 'mesh'
           c3mlStr = JSON.stringify({c3mls: [c3ml]})
-          if c3mlStr.length < 10e6
-            # If the c3ml is less than 1MB, just store it in the document directly.
-            geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
-          else
-            # Upload a single file at a time to avoid tripping up CollectionFS.
-            _uploadQueue.add ->
-              uploadDf = Q.defer()
-              # Store the mesh as a separate file and use the file ID as the geom_3d value.
-              c3ml.project = projectId
-              file = new FS.File()
-              file.attachData(Arrays.arrayBufferFromString(c3mlStr), type: 'application/json')
-              Files.upload(file).then(
-                (fileObj) ->
-                  geomDf.resolve(geom_3d: fileObj._id, geom_3d_filename: filename)
-                  uploadDf.resolve(fileObj)
-                (err) ->
-                  geomDf.reject(err)
-                  uploadDf.reject(err)
-              )
-              return uploadDf.promise
+          geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
         else if type == 'collection'
           # Ignore collection since it only contains children c3ml IDs.
           geomDf.resolve(null)
@@ -301,6 +283,17 @@ EntityUtils =
     )
     df.promise
 
+  toC3mlArgs: (id) ->
+    entity = Entities.findOne(id)
+    args = {}
+    elevation = SchemaUtils.getParameterValue(entity, 'space.elevation')
+    fill_color = SchemaUtils.getParameterValue(entity, 'style.fill_color')
+    border_color = SchemaUtils.getParameterValue(entity, 'style.border_color')
+    if elevation? then args.altitude = elevation
+    if fill_color? then args.color = fill_color
+    if border_color? then args.borderColor = border_color
+    args
+
   _getGeometryFromFile: (id, paramId) ->
     paramId ?= 'geom_3d'
     entity = Entities.findOne(id)
@@ -347,17 +340,6 @@ EntityUtils =
     df.promise
 
   _render3dGeometry: (id) -> @_buildGeometryFromFile(id, 'geom_3d')
-
-  toC3mlArgs: (id) ->
-    entity = Entities.findOne(id)
-    args = {}
-    elevation = SchemaUtils.getParameterValue(entity, 'space.elevation')
-    fill_color = SchemaUtils.getParameterValue(entity, 'style.fill_color')
-    border_color = SchemaUtils.getParameterValue(entity, 'style.border_color')
-    if elevation? then args.altitude = elevation
-    if fill_color? then args.color = fill_color
-    if border_color? then args.borderColor = border_color
-    args
 
   getDisplayMode: (id) ->
     model = Entities.findOne(id)
@@ -498,18 +480,103 @@ EntityUtils =
       renderDfs = []
       models = Entities.findByProject().fetch()
       @_chooseDisplayMode()
-      _.each models, (model) => renderDfs.push(@render(model._id))
-      df.resolve(Q.all(renderDfs))
+      # _.each models, (model) => renderDfs.push(@render(model._id))
+      # df.resolve(Q.all(renderDfs))
+      df.resolve(@_renderBulk())
+    df.promise
+
+  _renderBulk: ->
+    df = Q.defer()
+    entities = Entities.findByProject().fetch()
+    project = Projects.getCurrent()
+    # TODO(aramk) Remove this - just for testing.
+    # entities = entities.slice(0, 200)
+    WKT.getWKT (wkt) =>
+      c3mlEntities = []
+
+      _.each entities, (entity) =>
+        id = AtlasIdMap.getAtlasId(entity._id)
+        geom2dId = null
+        geom3dId = null
+        geoEntity = AtlasManager.getEntity(id)
+        if geoEntity?
+          # Ignore already rendered entities.
+          return
+
+        geom_2d = SchemaUtils.getParameterValue(entity, 'space.geom_2d')
+        if geom_2d
+          geom2dId = id + '-geom2d'
+
+          typeId = SchemaUtils.getParameterValue(entity, 'general.type')
+          type = Typologies.findOne(typeId)
+          typeFillColor = type && SchemaUtils.getParameterValue(type, 'style.fill_color')
+          typeBorderColor = type && SchemaUtils.getParameterValue(type, 'style.border_color')
+          style = SchemaUtils.getParameterValue(entity, 'style')
+          fill_color = style?.fill_color ? typeFillColor ? '#eee'
+          border_color = style?.border_color ? typeBorderColor
+          if fill_color && !border_color
+            border_color = Colors.darken(fill_color)
+
+          # isWKT = wkt.isWKT(geom_2d)
+          # if isWKT
+          c3ml = @toC3mlArgs(id)
+          _.extend c3ml,
+            id: id + '-geom2d'
+            type: 'polygon'
+            coordinates: geom_2d
+          if fill_color
+            c3ml.color = fill_color
+          if border_color
+            c3ml.borderColor = border_color
+          c3mlEntities.push(c3ml)
+          # else
+          #   Logger.error('Cannot render 2D geometry which is not WKT.')
+        
+        geom_3d = SchemaUtils.getParameterValue(entity, 'space.geom_3d')
+        if geom_3d
+          geom3dId = id + '-geom3d'
+          try
+            c3mls = JSON.parse(geom_3d).c3mls
+            childIds = _.map c3mls, (c3ml) ->
+              c3mlEntities.push(c3ml)
+              c3ml.id
+            c3mlEntities.push
+              id: geom3dId
+              type: 'collection'
+              children: childIds
+          catch e
+            Logger.error('Could not render 3D geometry as C3ML', e)
+
+        if geom2dId || geom3dId
+          forms = {}
+          if geom2dId
+            forms.footprint = geom2dId
+          if geom3dId
+            forms.mesh = geom3dId
+          c3mlEntities.push
+            id: id
+            type: 'feature'
+            forms: forms
+
+      console.log('c3mlEntities', c3mlEntities.length)
+      df.resolve(AtlasManager.renderEntities(c3mlEntities))
     df.promise
 
   renderAllAndZoom: ->
-    if Entities.findByProject().count() != 0
-      @renderAll().then bindMeteor =>
-        # If no entities have geometries, this will fail, so we should zoom to the project if
-        # possible.
-        @zoomToEntities().fail(-> ProjectUtils.zoomTo()).done()
-    else
-      Q.when(ProjectUtils.zoomTo())
+    df = Q.defer()
+    @renderAll().then(
+      bindMeteor (c3mlEntities) =>
+        if c3mlEntities.length == 0
+          df.resolve(ProjectUtils.zoomTo())
+        else
+          # If no entities have geometries, this will fail, so we should zoom to the project if
+          # possible.
+          promise = @zoomToEntities()
+          df.resolve(promise)
+          promise.fail(-> ProjectUtils.zoomTo()).done()
+      df.reject
+    )
+    df.promise
 
   _chooseDisplayMode: ->
     geom2dCount = 0

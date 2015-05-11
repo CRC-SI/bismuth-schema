@@ -279,7 +279,7 @@ SchemaUtils =
 # SCHEMA OPTIONS
 ####################################################################################################
 
-SimpleSchema.debug = true
+# SimpleSchema.debug = true
 SimpleSchema.extendOptions
 # Optional extra fields.
   desc: Match.Optional(String)
