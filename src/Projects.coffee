@@ -12,15 +12,26 @@ location:
       type: String
       desc: 'State, territory or region in which the precinct is situated.'
       optional: false
+      allowedValues: [
+        'Australian Capital Territory'
+        'New South Wales'
+        'Northern Territory'
+        'South Australia'
+        'Tasmania'
+        'Queensland'
+        'Victoria'
+        'West Australia'
+        'New Zealand'
+      ]
     loc_auth:
-      label: 'Local Government Authority'
+      label: 'LGA or Suburb'
       type: String
-      desc: 'Local government authority in which this precinct predominantly or completely resides.'
+      desc: 'Local government authority or suburb in which this precinct resides.'
       optional: false
     suburb:
       label: 'Suburb'
       type: String
-      desc: 'Suburb in which this precinct predominantly or completely resides.'
+      desc: 'Suburb in which this precinct resides.'
     post_code:
       label: 'Post Code'
       type: Number
@@ -72,12 +83,11 @@ isTemplate:
   type: Boolean
   defaultValue: false
 
-# Collections.ready ->
-
 Projects = new Meteor.Collection 'projects'
 Projects.attachSchema(ProjectSchema)
 Projects.ParametersSchema = ParametersSchema
 Projects.allow(Collections.allowAll())
+AccountsUtil.addCollectionAuthorization(Projects)
 
 if Meteor.isClient
   reactiveProject = new ReactiveVar(null)

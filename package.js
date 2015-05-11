@@ -2,7 +2,7 @@ Package.describe({
   name: 'urbanetic:bismuth-schema',
   summary: 'Schemas and collections for working with GIS apps.',
   git: 'https://github.com/urbanetic/bismuth-schema.git',
-  version: '0.0.1'
+  version: '0.1.0'
 });
 
 Package.on_use(function(api) {
@@ -11,19 +11,26 @@ Package.on_use(function(api) {
     'check',
     'coffeescript',
     'underscore',
+    'reactive-var',
+    'tracker',
     'aldeed:collection2@2.3.1',
     'aldeed:simple-schema@1.1.0',
     'aramk:pubsub@1.5.0',
     'aramk:q@1.0.1_1',
     'aramk:utility@0.6.0',
-    'matb33:collection-hooks@0.7.6'
+    'matb33:collection-hooks@0.7.6',
+    'urbanetic:accounts-ui@0.2.2'
   ], ['client', 'server']);
+  api.use([
+    'session'
+  ], 'client')
   // Using Depends utility is necessary to gain access to asynchronously defined modules.
   api.imply('aramk:utility');
   api.addFiles([
     'src/Units.coffee',
     'src/util/SchemaUtils.coffee',
     'src/Projects.coffee',
+    'src/util/ScenarioUtils.coffee',
     'src/Scenarios.coffee',
     'src/schemas/TypologySchema.coffee',
     'src/Typologies.coffee',
@@ -37,6 +44,7 @@ Package.on_use(function(api) {
     'Units',
     'SchemaUtils',
     'Projects',
+    'ScenarioUtils',
     'Scenarios',
     'TypologySchema',
     'Typologies',

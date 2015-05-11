@@ -3,6 +3,9 @@ LayerSchema = new SimpleSchema
     type: String
     index: true
     unique: false
+  type:
+    type: String
+    optional: true
   desc: SchemaUtils.descSchema()
   parameters: EntitySchema.parametersSchemaField
 project: SchemaUtils.projectSchema()

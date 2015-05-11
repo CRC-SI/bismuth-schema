@@ -2,10 +2,10 @@ typologyCategories =
   style:
     items:
       fill_color:
-        label: 'Color'
+        label: 'Colour'
         type: String
       border_color:
-        label: 'Border Color'
+        label: 'Border Colour'
         type: String
 
 ParametersSchema = SchemaUtils.createCategoriesSchema

@@ -10,3 +10,23 @@ Scenarios = new Meteor.Collection 'scenarios'
 Scenarios.attachSchema(ScenarioSchema)
 Scenarios.allow(Collections.allowAll())
 Scenarios.findByProject = (projectId) -> SchemaUtils.findByProject(Scenarios, projectId)
+
+if Meteor.isClient
+  # No current scenario exists on server.
+  Scenarios.after.insert (userId, scenario) ->
+    id = scenario._id
+    Meteor.call 'scenarios/setup', id, ScenarioUtils.getCurrentId(), (err, result) ->
+      ScenarioUtils.setCurrentId(id)
+  handle = null
+  Tracker.autorun ->
+    # Listen to changes in the scenario and re-subscribe to entities.
+    scenarioId = ScenarioUtils.getCurrentId()
+    projectId = Projects.getCurrentId()
+    return unless projectId
+    handle?.stop()
+    EntityUtils.enableRendering(false)
+    handle = Meteor.subscribe 'entities', projectId, scenarioId, ->
+      console.log('onReady', @, arguments)
+      EntityUtils.enableRendering(true)
+      PubSub.publish 'scenarios/loaded', scenarioId
+

@@ -9,9 +9,8 @@ Entities.findByProject = (projectId) -> SchemaUtils.findByProject(Entities, proj
 
 Entities.findByProjectAndScenario = (projectId, scenarioId) ->
   # NOTE: Always use Entities.findByProject() for a cursor on all entities as scenarios are
-  # switched. Entities.findByProjectAndScenario() should only be used for publishing or when
-  # repeated calls are possible. If a single call is made when no scenario exists, the
-  # returned cursor won't be updated with entities in scenarios.
+  # switched. Entities.findByProjectAndScenario() should be used on the server exclusively (e.g. for
+  # publishing).
   projectId ?= Projects.getCurrentId()
   unless projectId
     throw new Error('Project ID not provided - cannot retrieve models.')
@@ -59,3 +58,8 @@ Entities.mergeTypologyObj = (entity, typology) ->
     Setter.defaults(entity.parameters, typology.parameters)
     Typologies.filterParameters(entity)
   entity
+
+# Removing an entity should remove its children
+Entities.after.remove (userId, entity) ->
+  Entities.getChildren(entity._id).forEach (child) -> Entities.remove(child._id)
+

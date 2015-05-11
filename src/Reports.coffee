@@ -39,7 +39,8 @@ Reports.docToInstance = (docOrId) ->
 if Meteor.isClient
   # Used to restore the last report opened per project.
   reportsLastOpenedSessionVarName = 'reportsLastOpened'
-  Session.setDefaultPersistent(reportsLastOpenedSessionVarName, {})
+  # Session.setDefaultPersistent(reportsLastOpenedSessionVarName, {})
+  Session.set(reportsLastOpenedSessionVarName, {})
   Reports.getLastOpened = (projectId) ->
     projectId ?= Projects.getCurrentId()
     Session.get(reportsLastOpenedSessionVarName)[projectId]
@@ -47,12 +48,14 @@ if Meteor.isClient
     projectId ?= Projects.getCurrentId()
     map = Session.get(reportsLastOpenedSessionVarName)
     map[projectId] = reportId
-    Session.setPersistent(reportsLastOpenedSessionVarName, map)
+    # Session.setPersistent(reportsLastOpenedSessionVarName, map)
+    Session.set(reportsLastOpenedSessionVarName, map)
   Reports.removeLastOpened = (projectId) ->
     projectId ?= Projects.getCurrentId()
     map = Session.get(reportsLastOpenedSessionVarName)
     delete map[projectId]
-    Session.setPersistent(reportsLastOpenedSessionVarName, map)
+    # Session.setPersistent(reportsLastOpenedSessionVarName, map)
+    Session.set(reportsLastOpenedSessionVarName, map)
 
 # Listen for changes to Entities or Typologies and refresh reports.
 _reportRefreshSubscribed = false

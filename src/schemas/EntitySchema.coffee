@@ -25,14 +25,28 @@ entityCategories =
   style:
     items:
       fill_color:
-        label: 'Color'
+        label: 'Colour'
         type: String
       border_color:
-        label: 'Border Color'
+        label: 'Border Colour'
         type: String
 
 ParametersSchemaFields = SchemaUtils.createCategoriesSchemaFields
   categories: entityCategories
+# Dynamic parameters
+_.extend ParametersSchemaFields,
+  inputs:
+    label: 'Input Parameters'
+    desc: 'Input values used in analysis.'
+    type: Object
+    blackbox: true
+    defaultValue: {}
+  outputs:
+    label: 'Output Parameters'
+    desc: 'Output values calculated by analysis services.'
+    type: Object
+    blackbox: true
+    defaultValue: {}
 ParametersSchema = new SimpleSchema(ParametersSchemaFields)
 
 parametersSchemaField = Object.freeze
