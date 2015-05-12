@@ -19,6 +19,8 @@ if Meteor.isClient
       ScenarioUtils.setCurrentId(id)
   handle = null
   Tracker.autorun ->
+    loadDf = Q.defer()
+    Scenarios.ready = -> loadDf.promise
     # Listen to changes in the scenario and re-subscribe to entities.
     scenarioId = ScenarioUtils.getCurrentId()
     projectId = Projects.getCurrentId()
@@ -28,5 +30,5 @@ if Meteor.isClient
     handle = Meteor.subscribe 'entities', projectId, scenarioId, ->
       console.log('onReady', @, arguments)
       EntityUtils.enableRendering(true)
+      loadDf.resolve()
       PubSub.publish 'scenarios/loaded', scenarioId
-

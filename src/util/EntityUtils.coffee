@@ -487,6 +487,9 @@ EntityUtils =
     df.promise
 
   _renderBulk: ->
+    # TODO(aramk) Remove - just for testing.
+    # return Q.resolve([])
+
     df = Q.defer()
     entities = Entities.findByProject().fetch()
     project = Projects.getCurrent()
