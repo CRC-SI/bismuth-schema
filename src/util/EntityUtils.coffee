@@ -98,7 +98,6 @@ EntityUtils =
               typeDf.resolve(typeId)
         typeDf.promise
 
-      console.log('c3mls', c3mls.length)
       _.each c3mls, (c3ml, i) ->
         entityId = c3ml.id
         c3mlMap[entityId] = c3ml
