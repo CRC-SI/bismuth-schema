@@ -455,20 +455,22 @@ EntityUtils =
           )
     df.promise.then bindMeteor (geoEntity) =>
       return unless geoEntity
-      # Render the parent but don't delay the entity to prevent a deadlock with the render
-      # queue.
-      parentId = model.parent
-      # Set the display mode on features - entities which are collections do not apply.
-      if geoEntity.setDisplayMode? && displayMode
-        geoEntity.setDisplayMode(displayMode)
-      if parentId
-        @render(parentId).then (parentEntity) =>
-          unless geoEntity.getParent()
-            parentEntity.addEntity(id)
-          @show(parentId)
-      else
-        # Setting the display mode isn't enough to show the entity if we rendered a hidden geometry.
-        @show(id)
+      # TODO(aramk) Rendering the parent as a special case with children doesn't affect the
+      # visualisation at this point.
+      # # Render the parent but don't delay the entity to prevent a deadlock with the render
+      # # queue.
+      # parentId = model.parent
+      # # Set the display mode on features - entities which are collections do not apply.
+      # if geoEntity.setDisplayMode? && displayMode
+      #   geoEntity.setDisplayMode(displayMode)
+      # if parentId
+      #   @render(parentId).then (parentEntity) =>
+      #     unless geoEntity.getParent()
+      #       parentEntity.addEntity(id)
+      #     @show(parentId)
+      # else
+      # Setting the display mode isn't enough to show the entity if we rendered a hidden geometry.
+      @show(id)
     df.promise.fail ->
       # Remove any entities which failed to render to avoid leaving them within Atlas.
       console.error('Failed to render entity ' + id)
