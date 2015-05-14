@@ -118,7 +118,7 @@ LayerUtils =
       unless c3mls
         c3mls = [data]
       # Ignore all collections in the c3ml, since they don't affect visualisation of the layer.
-      c3mls = _.filter c3mls, (c3ml) -> c3ml.type != 'collection'
+      c3mls = _.filter c3mls, (c3ml) -> AtlasConverter.sanitizeType(c3ml.type) != 'collection'
       if c3mls.length == 1
         # Ensure the ID of the layer is assigned if only a single entity rendered.
         c3mls[0].id = id

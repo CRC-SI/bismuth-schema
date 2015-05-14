@@ -5,10 +5,10 @@ renderCount = new ReactiveVar(0)
 incrementRenderCount = -> renderCount.set(renderCount.get() + 1)
 decrementRenderCount = -> renderCount.set(renderCount.get() - 1)
 
-_renderQueue = null
-_uploadQueue = null
-resetRenderQueue = -> _renderQueue = new DeferredQueueMap()
-resetUploadQueue = -> _uploadQueue = new DeferredQueue()
+renderQueue = null
+uploadQueue = null
+resetRenderQueue = -> renderQueue = new DeferredQueueMap()
+resetUploadQueue = -> uploadQueue = new DeferredQueue()
 renderingEnabled = true
 renderingEnabledDf = Q.defer()
 renderingEnabledDf.resolve()
@@ -380,7 +380,7 @@ EntityUtils =
   render: (id, args) ->
     df = Q.defer()
     renderingEnabledDf.promise.then bindMeteor =>
-      _renderQueue.add id, => @_render(id, args).then(df.resolve, df.reject)
+      renderQueue.add id, => @_render(id, args).then(df.resolve, df.reject)
     df.promise
 
   _render: (id, args) ->
@@ -486,7 +486,8 @@ EntityUtils =
       @_chooseDisplayMode()
       # _.each models, (model) => renderDfs.push(@render(model._id))
       # df.resolve(Q.all(renderDfs))
-      df.resolve(@_renderBulk())
+      promise = renderQueue.add 'bulk', => @_renderBulk()
+      df.resolve(promise)
     df.promise
 
   _renderBulk: ->
@@ -584,6 +585,8 @@ EntityUtils =
     )
     df.promise
 
+  whenRenderingComplete: -> renderQueue.waitForAll()
+
   _chooseDisplayMode: ->
     geom2dCount = 0
     geom3dCount = 0
@@ -615,7 +618,7 @@ EntityUtils =
   unrender: (id) ->
     df = Q.defer()
     renderingEnabledDf.promise.then bindMeteor ->
-      _renderQueue.add id, ->
+      renderQueue.add id, ->
         AtlasManager.unrenderEntity(id)
         df.resolve(id)
     df.promise
