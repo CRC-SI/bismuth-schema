@@ -38,7 +38,7 @@ LayerUtils =
           Logger.error('Failed to insert layer', err)
           df.reject(err)
         else
-          Logger.log('Inserted layer comprised of ' + c3mls.length + ' c3mls')
+          Logger.info('Inserted layer comprised of ' + c3mls.length + ' c3mls')
           df.resolve(insertId)
     df.promise
 
@@ -122,7 +122,7 @@ LayerUtils =
       if c3mls.length == 1
         # Ensure the ID of the layer is assigned if only a single entity rendered.
         c3mls[0].id = id
-      AtlasManager.renderEntities(c3mls).then (c3mlEntities) ->
+      AtlasManager.renderEntities(c3mls).then (c3mlEntities) =>
         if c3mlEntities.length > 1
           entityIds = _.map c3mlEntities, (entity) -> entity.getId()
           df.resolve(@_createCollection(id, entityIds))
