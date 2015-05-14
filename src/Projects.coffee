@@ -106,6 +106,21 @@ Projects.getLocationCoords = (id) ->
   location = project.parameters.location
   {latitude: location.lat, longitude: location.lng, elevation: location.cam_elev}
 
+Projects.queryLocationCoords = (id) ->
+  df = Q.defer()
+  id ?= Projects.getCurrentId()
+  coords = Projects.getLocationCoords(id)
+  if coords.latitude? && coords.longitude?
+    return Q.resolve(coords)
+  else
+    df = Q.defer()
+    requirejs ['atlas/util/Geocoder'], (Geocoder) ->
+      Geocoder.getInstance().getInfo(address: Projects.getLocationAddress(id)).then(
+        (result) -> df.resolve(result.position)
+        df.reject
+      )
+    df.promise
+
 Projects.setLocationCoords = (id, location) ->
   df = Q.defer()
   id ?= Projects.getCurrentId()

@@ -118,6 +118,7 @@ EntityUtils =
         # WKT.
         filename = entityId + '.json'
         if type == 'mesh'
+          c3mlStr = JSON.stringify({c3mls: [c3ml]})
           if c3mlStr.length < 1024 * 1024 * 10
             # If the c3ml is less than 10MB, just store it in the document directly. A document has
             # a 16MB limit.
