@@ -98,6 +98,8 @@ EntityUtils =
               typeDf.resolve(typeId)
         typeDf.promise
 
+      Logger.info('Inserting ' + c3mls.length + ' c3mls...')
+
       _.each c3mls, (c3ml, i) ->
         entityId = c3ml.id
         c3mlMap[entityId] = c3ml
