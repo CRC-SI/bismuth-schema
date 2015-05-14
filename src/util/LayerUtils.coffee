@@ -123,12 +123,26 @@ LayerUtils =
         # Ensure the ID of the layer is assigned if only a single entity rendered.
         c3mls[0].id = id
       AtlasManager.renderEntities(c3mls).then (c3mlEntities) =>
+        _.each c3mls, (c3ml) => @_setUpPopup(c3ml)
         if c3mlEntities.length > 1
           entityIds = _.map c3mlEntities, (entity) -> entity.getId()
           df.resolve(@_createCollection(id, entityIds))
         else
           df.resolve(c3mlEntities[0])
     df.promise
+
+  _setUpPopup: (c3ml) ->
+    id = c3ml.id
+    geoEntity = AtlasManager.getEntity(id)
+    properties = c3ml.properties
+    description = properties.description
+    return unless description
+
+    AtlasManager.getAtlas().then (atlas) ->
+      atlas.publish 'popup/onSelection',
+        entity: geoEntity
+        content: -> description
+        title: -> ''
 
   _createCollection: (id, entityIds) ->
     AtlasManager.createCollection id,
