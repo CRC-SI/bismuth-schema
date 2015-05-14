@@ -118,7 +118,27 @@ EntityUtils =
         # WKT.
         filename = entityId + '.json'
         if type == 'mesh'
-          c3mlStr = JSON.stringify({c3mls: [c3ml]})
+          if c3mlStr.length < 1024 * 1024 * 10
+            # If the c3ml is less than 10MB, just store it in the document directly. A document has
+            # a 16MB limit.
+            geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
+          else
+            # Upload a single file at a time to avoid tripping up CollectionFS.
+            _uploadQueue.add ->
+              uploadDf = Q.defer()
+              # Store the mesh as a separate file and use the file ID as the geom_3d value.
+              c3ml.project = projectId
+              file = new FS.File()
+              file.attachData(Arrays.arrayBufferFromString(c3mlStr), type: 'application/json')
+              Files.upload(file).then(
+                (fileObj) ->
+                  geomDf.resolve(geom_3d: fileObj._id, geom_3d_filename: filename)
+                  uploadDf.resolve(fileObj)
+                (err) ->
+                  geomDf.reject(err)
+                  uploadDf.reject(err)
+              )
+              return uploadDf.promise
           geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
         else if type == 'collection'
           # Ignore collection since it only contains children c3ml IDs.
@@ -491,9 +511,6 @@ EntityUtils =
     df.promise
 
   _renderBulk: ->
-    # TODO(aramk) Remove - just for testing.
-    # return Q.resolve([])
-
     df = Q.defer()
     entities = Entities.findByProject().fetch()
     project = Projects.getCurrent()
@@ -523,8 +540,6 @@ EntityUtils =
           if fill_color && !border_color
             border_color = Colors.darken(fill_color)
 
-          # isWKT = wkt.isWKT(geom_2d)
-          # if isWKT
           c3ml = @toC3mlArgs(id)
           _.extend c3ml,
             id: id + '-geom2d'
@@ -535,8 +550,6 @@ EntityUtils =
           if border_color
             c3ml.borderColor = border_color
           c3mlEntities.push(c3ml)
-          # else
-          #   Logger.error('Cannot render 2D geometry which is not WKT.')
         
         geom_3d = SchemaUtils.getParameterValue(entity, 'space.geom_3d')
         if geom_3d
@@ -551,7 +564,9 @@ EntityUtils =
               type: 'collection'
               children: childIds
           catch e
-            Logger.error('Could not render 3D geometry as C3ML', e)
+            # 3D mesh is a file reference, so render it individually.
+            @render(id)
+            return
 
         if geom2dId || geom3dId
           forms = {}
@@ -630,6 +645,7 @@ EntityUtils =
       _.each ids, (id) -> PubSub.publish('entity/show', id)
 
   hide: (id) ->
+    return unless AtlasManager.getEntity(id)
     if AtlasManager.hideEntity(id)
       ids = @_getChildrenFeatureIds(id)
       ids.push(id)

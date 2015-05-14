@@ -157,6 +157,7 @@ LayerUtils =
       PubSub.publish('layer/show', id)
 
   hide: (id) ->
+    return unless AtlasManager.getEntity(id)
     @_renderers[id]?.hide?()
     if AtlasManager.hideEntity(id)
       PubSub.publish('layer/hide', id)
