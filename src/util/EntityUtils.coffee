@@ -5,6 +5,9 @@ renderCount = new ReactiveVar(0)
 incrementRenderCount = -> renderCount.set(renderCount.get() + 1)
 decrementRenderCount = -> renderCount.set(renderCount.get() - 1)
 
+GEOMETRY_SIZE_LIMIT = 1024 * 1024 * 10 # 10MB
+CONSOLE_LOG_SIZE_LIMIT = 1024 * 1024 # 1MB
+
 renderQueue = null
 uploadQueue = null
 resetRenderQueue = -> renderQueue = new DeferredQueueMap()
@@ -29,11 +32,14 @@ EntityUtils =
     df = Q.defer()
     modelDfs = []
     c3mls = args.c3mls
+    unless Types.isArray(c3mls)
+      return Q.reject('C3ML not defined as an array.')
+
     colorOverride = args.color
     isLayer = args.isLayer
     projectId = args.projectId ? Projects.getCurrentId()
     unless projectId
-      throw new Error('No project provided.')
+      return Q.reject('No project provided.')
 
     if isLayer
       layerPromise = LayerUtils.fromC3mls c3mls,
@@ -119,13 +125,14 @@ EntityUtils =
         filename = entityId + '.json'
         if type == 'mesh'
           c3mlStr = JSON.stringify({c3mls: [c3ml]})
-          if c3mlStr.length < 1024 * 1024 * 10
+          if c3mlStr.length < GEOMETRY_SIZE_LIMIT
             # If the c3ml is less than 10MB, just store it in the document directly. A document has
             # a 16MB limit.
             geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
           else
+            Logger.info('Inserting a mesh exceeding file size limits:', c3mlStr.length, 'bytes')
             # Upload a single file at a time to avoid tripping up CollectionFS.
-            _uploadQueue.add ->
+            uploadQueue.add ->
               uploadDf = Q.defer()
               # Store the mesh as a separate file and use the file ID as the geom_3d value.
               c3ml.project = projectId
@@ -133,14 +140,15 @@ EntityUtils =
               file.attachData(Arrays.arrayBufferFromString(c3mlStr), type: 'application/json')
               Files.upload(file).then(
                 (fileObj) ->
-                  geomDf.resolve(geom_3d: fileObj._id, geom_3d_filename: filename)
+                  fileId = fileObj._id
+                  Logger.info('Inserted a mesh exceeding file size limits:', fileId)
+                  geomDf.resolve(geom_3d: fileId, geom_3d_filename: filename)
                   uploadDf.resolve(fileObj)
                 (err) ->
                   geomDf.reject(err)
                   uploadDf.reject(err)
               )
               return uploadDf.promise
-          geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
         else if type == 'collection'
           # Ignore collection since it only contains children c3ml IDs.
           geomDf.resolve(null)
@@ -182,7 +190,7 @@ EntityUtils =
               _.each entityParams, (value, name) ->
                 value = parseFloat(value)
                 inputs[name] = value unless isNaN(value)
-              _.each ['Type', 'TYPE', 'type', 'landuse'], (typeParam) ->
+              _.each ['Type', 'TYPE', 'type', 'landuse', 'use'], (typeParam) ->
                 typeValue = entityParams[typeParam]
                 typeName = entityParams[typeParam] if typeValue?
                 delete inputs[typeParam]
@@ -220,7 +228,16 @@ EntityUtils =
                         inputs: inputs
                     Entities.insert model, (err, insertId) ->
                       if err
-                        console.error('Failed to insert entity', err)
+                        Logger.error('Failed to insert entity', err)
+                        try
+                          entityStr = JSON.stringify(args)
+                          if entityStr > CONSOLE_LOG_SIZE_LIMIT
+                            filePath = FileUtils.writeToTempFile(filename, entityStr)
+                            Logger.info('Failed entity written to', filePath)
+                          else
+                            Logger.debug('Failed entity', entityStr)
+                        catch e
+                          Logger.error('Failed to log entity insert failure', e)
                         modelDf.reject(err)
                       else
                         # idMap[c3mlId] = insertedId
@@ -257,7 +274,7 @@ EntityUtils =
               position = c3ml.coordinates[0] ? c3ml.geoLocation
               if position
                 assetPosition = new GeoPoint(position)
-            if assetPosition?
+            if assetPosition? && assetPosition.longitude != 0 && assetPosition.latitude != 0
               console.log 'Setting project location', assetPosition
               Projects.setLocationCoords(projectId, assetPosition).then(resolve, df.reject)
             else
@@ -339,7 +356,7 @@ EntityUtils =
     collectionId = id + '-' + paramId
     df = Q.defer()
     @_getGeometryFromFile(id, paramId).then(
-      (geom) ->
+      bindMeteor (geom) ->
         df.resolve(GeometryUtils.buildGeometryFromC3ml(geom, {collectionId: collectionId}))
       df.reject
     )
@@ -499,7 +516,7 @@ EntityUtils =
       _.each addedGeometry, (geometry) -> geometry.remove()
     df.promise
 
-  renderAll: ->
+  renderAll: (args) ->
     df = Q.defer()
     renderingEnabledDf.promise.then bindMeteor =>
       # renderDfs = []
@@ -507,15 +524,26 @@ EntityUtils =
       @_chooseDisplayMode()
       # _.each models, (model) => renderDfs.push(@render(model._id))
       # df.resolve(Q.all(renderDfs))
-      promise = renderQueue.add 'bulk', => @_renderBulk()
+      promise = renderQueue.add 'bulk', => @_renderBulk(args)
       df.resolve(promise)
     df.promise
 
-  _renderBulk: ->
+  _renderBulk: (args)  ->
+    args ?= {}
     df = Q.defer()
-    entities = Entities.findByProject().fetch()
-    project = Projects.getCurrent()
-    WKT.getWKT (wkt) =>
+    ids = args.ids
+    if ids
+      entities = _.map ids, (id) -> Entities.findOne(id)
+    else
+      projectId = args.projectId ? Projects.getCurrentId()
+      entities = Entities.findByProject(projectId).fetch()
+    
+    childrenIds = {}
+    _.each ids, (id) ->
+      childrenIds[id] = Entities.find({parent: id}).map (entity) -> entity._id
+
+    promises = []
+    WKT.getWKT bindMeteor (wkt) =>
       c3mlEntities = []
 
       _.each entities, (entity) =>
@@ -566,7 +594,7 @@ EntityUtils =
               children: childIds
           catch e
             # 3D mesh is a file reference, so render it individually.
-            @render(id)
+            promises.push @render(id)
             return
 
         if geom2dId || geom3dId
@@ -581,8 +609,24 @@ EntityUtils =
             type: 'feature'
             displayMode: displayMode
             forms: forms
+        else if childrenIds[id]
+          c3mlEntities.push
+            id: id
+            type: 'collection'
+            children: childrenIds[id]
 
-      df.resolve(AtlasManager.renderEntities(c3mlEntities))
+      promises.push AtlasManager.renderEntities(c3mlEntities)
+      Q.all(promises).then(
+        bindMeteor (results) ->
+          c3mlEntities = []
+          _.each results, (result) ->
+            if Types.isArray(result)
+              _.each result, (singleResult) -> c3mlEntities.push(singleResult)
+            else
+              c3mlEntities.push(result)
+          df.resolve(c3mlEntities)
+        df.reject
+      )
     df.promise
 
   renderAllAndZoom: ->
@@ -686,25 +730,56 @@ EntityUtils =
       return if jsonIds[id]
       json = jsonIds[id] = entity.toJson()
       entitiesJson.push(json)
-    promises = []
-    # Only find the root entities and render those, which will render their children.
+    
+    # renderedIds = []
+    # promises = []
+    df = Q.defer()
+
     entities = Entities.findByProjectAndScenario(projectId, scenarioId).fetch()
-    entities = _.filter entities, (entity) -> !entity.parent
-    _.each entities, (entity) =>
-      id = entity._id
-      entityPromises = []
-      if Meteor.isServer
-        # Remove all rendered entities so they aren't cached on the next request.
-        entityPromises.push @unrender(id)
-      entityPromises.push @render(id, args)
-      promises.push Q.all(entityPromises).then (result) ->
-        geoEntity = result[1]
-        return unless geoEntity
-        addEntity(geoEntity)
-        _.each geoEntity.getRecursiveChildren(), (childEntity) -> addEntity(childEntity)
-    Q.all(promises).then ->
-      _.each entitiesJson, (json) -> json.type = json.type.toUpperCase()
-      {c3mls: entitiesJson}
+    existingEntities = {}
+    ids = _.map entities, (entity) -> entity._id
+      # AtlasManager
+      # existingEntities[]
+    if Meteor.isServer
+      # Unrender all entities when on the server to prevent using old rendered data.
+      unrenderPromises = _.map ids, (id) => @unrender(id)
+    else
+      unrenderPromises = []
+    Q.all(unrenderPromises).then bindMeteor =>
+      renderPromise = @_renderBulk({ids: ids, projectId: projectId})
+      renderPromise.then -> 
+        geoEntities = _.map ids, (id) -> AtlasManager.getEntity(id)
+        _.each geoEntities, (entity) ->
+          addEntity(entity)
+          _.each entity.getRecursiveChildren(), addEntity
+        _.each entitiesJson, (json) -> json.type = json.type.toUpperCase()
+        df.resolve(c3mls: entitiesJson)
+      # Unrender all entities when on the server to prevent using old rendered data.
+      renderPromise.fin bindMeteor => if Meteor.isServer then _.each ids, (id) => @unrender(id)
+    df.promise
+
+    # entities = _.filter entities, (entity) -> !entity.parent
+    # _.each entities, (entity) =>
+    #   id = entity._id
+    #   entityPromises = []
+    #   if Meteor.isServer
+    #     entityPromises.push @unrender(id)
+    #   entityPromises.push @render(id, args)
+    #   promises.push Q.all(entityPromises).then (result) ->
+    #     geoEntity = result[1]
+    #     return unless geoEntity
+    #     addEntity(geoEntity)
+    #     _.each geoEntity.getRecursiveChildren(), (childEntity) -> addEntity(childEntity)
+    # promise = Q.all(promises)
+    
+    # promise = df.promise
+    # promise.then ->
+    #   _.each entitiesJson, (json) -> json.type = json.type.toUpperCase()
+    #   {c3mls: entitiesJson}
+    # promise.fin =>
+    #   if Meteor.isServer
+    #     _.each renderedIds, (id) => @unrender(id)
+      # Remove all rendered entities so they aren't cached on the next request.
 
   _getProjectAndScenarioArgs: (args) ->
     args ?= {}
@@ -716,23 +791,32 @@ EntityUtils =
   downloadInBrowser: (projectId, scenarioId) ->
     projectId ?= Projects.getCurrentId()
     scenarioId ?= ScenarioUtils.getCurrentId()
+    Logger.info('Download entities as KMZ', projectId, scenarioId)
     Meteor.call 'entities/to/kmz', projectId, scenarioId, (err, fileId) =>
       if err then throw err
-      Files.downloadInBrowser(fileId)
+      if fileId
+        Logger.info('Download entities as KMZ with file ID', fileId)
+        Files.downloadInBrowser(fileId)
+      else
+        Logger.error('Could not download entities.')
 
 if Meteor.isServer
 
   _.extend EntityUtils,
 
     convertToKmz: (args) ->
+      Logger.info('Converting entities to KMZ', args)
       args = @_getProjectAndScenarioArgs(args)
       projectId = args.projectId
       scenarioId = args.scenarioId
 
       scenarioStr = if scenarioId then '-' + scenarioId else ''
-      filename = ProjectUtils.getDatedIdentifier(projectId) + scenarioStr + '.kmz'
+      filePrefix = ProjectUtils.getDatedIdentifier(projectId) + scenarioStr
+      filename = filePrefix + '.kmz'
 
       c3mlData = Promises.runSync -> EntityUtils.getEntitiesAsJson(args)
+      filePath = FileUtils.writeToTempFile(filePrefix + '.c3ml.json', JSON.stringify(c3mlData))
+      Logger.info('Wrote C3ML entities to', filePath)
       if c3mlData.c3mls.length == 0
         throw new Error('No entities to convert')
       buffer = AssetConversionService.export(c3mlData)
