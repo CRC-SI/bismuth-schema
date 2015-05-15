@@ -19,7 +19,8 @@ Package.on_use(function(api) {
     'aramk:q@1.0.1_1',
     'aramk:utility@0.6.0',
     'matb33:collection-hooks@0.7.6',
-    'urbanetic:accounts-ui@0.2.2'
+    'urbanetic:accounts-ui@0.2.2',
+    'urbanetic:atlas-util@0.2.8'
   ], ['client', 'server']);
   api.use([
     'session'

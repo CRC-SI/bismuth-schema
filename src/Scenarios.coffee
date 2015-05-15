@@ -31,7 +31,6 @@ if Meteor.isClient
       return unless projectId
       EntityUtils.enableRendering(false)
       handle = Meteor.subscribe 'entities', projectId, scenarioId, ->
-        console.log('onReady', @, arguments)
         EntityUtils.enableRendering(true)
         loadDf.resolve()
         PubSub.publish 'scenarios/loaded', scenarioId

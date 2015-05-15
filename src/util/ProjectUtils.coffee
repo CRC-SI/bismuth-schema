@@ -106,7 +106,7 @@ ProjectUtils =
     @fromJson(json)
 
   downloadInBrowser: (id) ->
-    console.log 'Exporting project', id
+    Logger.info 'Exporting project', id
     json = @toJson(id)
     blob = Blobs.fromString(JSON.stringify(json), {type: 'application/json'})
     Blobs.downloadInBrowser(blob, 'project-' + id + '.json')
@@ -117,7 +117,7 @@ ProjectUtils =
     return unless location
     if location.latitude? and location.longitude?
       location.elevation ?= 5000
-      console.debug 'Loading project location', location
+      Logger.debug 'Loading project location', location
       AtlasManager.zoomTo
         position: location
         # Aim the camera at the ground.

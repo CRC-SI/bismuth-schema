@@ -7,7 +7,6 @@ Meteor.methods
     selector = {project: id}
     Entities.remove(selector)
     files = Files.find(selector).fetch()
-    console.log('Removing files', files)
     Files.remove(selector)
 
   'projects/duplicate': (id) ->

@@ -63,10 +63,10 @@ LayerUtils =
             geom_3d: fileObj._id
       Layers.insert model, (err, insertId) ->
         if err
-          console.error('Failed to insert layer', err)
+          Logger.error('Failed to insert layer', err)
           df.reject(err)
         else
-          console.log('Inserted layer with data')
+          Logger.log('Inserted layer with data')
           df.resolve(insertId)
     df.promise
 

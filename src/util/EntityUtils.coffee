@@ -275,7 +275,7 @@ EntityUtils =
               if position
                 assetPosition = new GeoPoint(position)
             if assetPosition? && assetPosition.longitude != 0 && assetPosition.latitude != 0
-              console.log 'Setting project location', assetPosition
+              Logger.debug 'Setting project location', assetPosition
               Projects.setLocationCoords(projectId, assetPosition).then(resolve, df.reject)
             else
               resolve()
@@ -381,20 +381,6 @@ EntityUtils =
 
   _render3dGeometry: (id) -> @_buildGeometryFromFile(id, 'geom_3d')
 
-  getDisplayMode: (id) ->
-    model = Entities.findOne(id)
-    space = model.parameters.space
-    geom_2d = space?.geom_2d
-    # Entities which have line geometries cannot have extrusion or mesh display modes.
-    isLine = geom_2d && geom_2d.indexOf('LINESTRING') >= 0
-    if isLine
-      'line'
-    else if Meteor.isClient
-      Session.get(displayModeSessionVariable)
-    else
-      # Server-side cannot display anything.
-      null
-
   _getModel: (id) -> Entities.findOne(id)
 
   enableRendering: (enabled) ->
@@ -430,9 +416,6 @@ EntityUtils =
     geom_2d = space?.geom_2d
     geom_3d = space?.geom_3d
     isCollection = Entities.getChildren(id).count() > 0
-    displayMode = args?.displayMode
-    if Meteor.isClient
-      displayMode ?= Session.get(displayModeSessionVariable)
 
     unless geom_2d || geom_3d || isCollection
       df.resolve(null)
@@ -496,23 +479,23 @@ EntityUtils =
       return unless geoEntity
       # TODO(aramk) Rendering the parent as a special case with children doesn't affect the
       # visualisation at this point.
-      # # Render the parent but don't delay the entity to prevent a deadlock with the render
-      # # queue.
-      # parentId = model.parent
-      # # Set the display mode on features - entities which are collections do not apply.
-      # if geoEntity.setDisplayMode? && displayMode
-      #   geoEntity.setDisplayMode(displayMode)
-      # if parentId
-      #   @render(parentId).then (parentEntity) =>
-      #     unless geoEntity.getParent()
-      #       parentEntity.addEntity(id)
-      #     @show(parentId)
-      # else
+      # Render the parent but don't delay the entity to prevent a deadlock with the render
+      # queue.
+      displayMode = args?.displayMode ? @getDisplayMode(id)
+      # Set the display mode on features - entities which are collections do not apply.
+      if geoEntity.setDisplayMode? && displayMode
+        geoEntity.setDisplayMode(displayMode)
+      parentId = model.parent
+      if parentId
+        @render(parentId).then (parentEntity) =>
+          unless geoEntity.getParent()
+            parentEntity.addEntity(id)
+          @show(parentId)
       # Setting the display mode isn't enough to show the entity if we rendered a hidden geometry.
       @show(id)
     df.promise.fail ->
       # Remove any entities which failed to render to avoid leaving them within Atlas.
-      console.error('Failed to render entity ' + id)
+      Logger.error('Failed to render entity ' + id)
       _.each addedGeometry, (geometry) -> geometry.remove()
     df.promise
 
@@ -555,6 +538,8 @@ EntityUtils =
           # Ignore already rendered entities.
           return
 
+        displayMode = @getDisplayMode(entity._id)
+
         geom_2d = SchemaUtils.getParameterValue(entity, 'space.geom_2d')
         if geom_2d
           geom2dId = id + '-geom2d'
@@ -572,8 +557,18 @@ EntityUtils =
           c3ml = @toC3mlArgs(id)
           _.extend c3ml,
             id: id + '-geom2d'
-            type: 'polygon'
             coordinates: geom_2d
+          
+          if wkt.isPolygon(geom_2d)
+            c3ml.type = 'polygon'
+          else if wkt.isLine(geom_2d)
+            c3ml.type = 'line'
+          else if wkt.isPoint(geom_2d)
+            c3ml.type = 'point'
+          else
+            console.error('Could not render unknown format of WKT', geom_2d)
+            return
+
           if fill_color
             c3ml.color = fill_color
           if border_color
@@ -603,7 +598,6 @@ EntityUtils =
             forms.polygon = geom2dId
           if geom3dId
             forms.mesh = geom3dId
-          displayMode = @getDisplayMode(entity._id)
           c3mlEntities.push
             id: id
             type: 'feature'
@@ -799,6 +793,24 @@ EntityUtils =
         Files.downloadInBrowser(fileId)
       else
         Logger.error('Could not download entities.')
+
+WKT.getWKT bindMeteor (wkt) ->
+  _.extend EntityUtils,
+    getDisplayMode: (id) ->
+      df = Q.defer()
+      model = Entities.findOne(id)
+      space = model.parameters.space
+      geom_2d = space?.geom_2d
+      # Entities which have line or point geometries cannot have extrusion or mesh display modes.
+      if wkt.isLine(geom_2d)
+        'line'
+      else if wkt.isPoint(geom_2d)
+        'point'
+      else if Meteor.isClient
+        Session.get(displayModeSessionVariable)
+      else
+        # Server-side cannot display anything.
+        null
 
 if Meteor.isServer
 
