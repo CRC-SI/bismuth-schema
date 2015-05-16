@@ -595,7 +595,7 @@ EntityUtils =
         if geom2dId || geom3dId
           forms = {}
           if geom2dId
-            forms.polygon = geom2dId
+            forms[@getFormType2d(id)] = geom2dId
           if geom3dId
             forms.mesh = geom3dId
           c3mlEntities.push
@@ -796,16 +796,27 @@ EntityUtils =
 
 WKT.getWKT bindMeteor (wkt) ->
   _.extend EntityUtils,
-    getDisplayMode: (id) ->
-      df = Q.defer()
+
+    getFormType2d: (id) ->
       model = Entities.findOne(id)
       space = model.parameters.space
       geom_2d = space?.geom_2d
       # Entities which have line or point geometries cannot have extrusion or mesh display modes.
-      if wkt.isLine(geom_2d)
+      if wkt.isPolygon(geom_2d)
+        'polygon'
+      else if wkt.isLine(geom_2d)
         'line'
       else if wkt.isPoint(geom_2d)
         'point'
+      else
+        null
+
+    getDisplayMode: (id) ->
+      formType2d = @getFormType2d(id)
+      if formType2d != 'polygon'
+        # When rendering lines and points, ensure the display mode is consistent. With polygons,
+        # we only enable them if 
+        formType2d
       else if Meteor.isClient
         Session.get(displayModeSessionVariable)
       else
