@@ -23,11 +23,7 @@ Meteor.startup ->
 EntityUtils =
 
   fromAsset: (args) ->
-    # Log the asset conversion when executing from the server to aid debugging.
-    if Meteor.isServer
-      filename = 'asset' + Dates.toIdentifier(moment()) + '.json'
-      filePath = FileUtils.writeToTempFile(filename, JSON.stringify(args))
-      Logger.info('Wrote asset to', filePath)
+    if Meteor.isServer then FileLogger.log(args)
 
     df = Q.defer()
     modelDfs = []
@@ -231,9 +227,8 @@ EntityUtils =
                         Logger.error('Failed to insert entity', err)
                         try
                           entityStr = JSON.stringify(args)
-                          if entityStr > CONSOLE_LOG_SIZE_LIMIT
-                            filePath = FileUtils.writeToTempFile(filename, entityStr)
-                            Logger.info('Failed entity written to', filePath)
+                          if entityStr.length > CONSOLE_LOG_SIZE_LIMIT && Meteor.isServer
+                            FileLogger.log(entityStr)
                           else
                             Logger.debug('Failed entity', entityStr)
                         catch e
@@ -838,8 +833,7 @@ if Meteor.isServer
       filename = filePrefix + '.kmz'
 
       c3mlData = Promises.runSync -> EntityUtils.getEntitiesAsJson(args)
-      filePath = FileUtils.writeToTempFile(filePrefix + '.c3ml.json', JSON.stringify(c3mlData))
-      Logger.info('Wrote C3ML entities to', filePath)
+      Logger.info('Wrote C3ML entities to', FileLogger.log(c3mlData))
       if c3mlData.c3mls.length == 0
         throw new Error('No entities to convert')
       buffer = AssetConversionService.export(c3mlData)
