@@ -174,13 +174,16 @@ EntityUtils =
               entityParams.ROOMHEIGHT ? c3ml.height
             elevation = entityParams.Elevation ? entityParams.FLOORRL ? c3ml.altitude
             Q.when(geomDfMap[c3mlId]).then bindMeteor (geomArgs) ->
-              # geomArgs = geomDfMap[c3mlId]
+              modelDf = entityDfMap[c3mlId]
               # Geometry may be empty
               space = null
               if geomArgs
                 space = _.extend geomArgs,
                   height: height
                   elevation: elevation
+              else
+                modelDf.resolve()
+
               typeName = null
               inputs = {}
               _.each entityParams, (value, name) ->
@@ -195,7 +198,6 @@ EntityUtils =
                 # Wait until the parent is inserted so we can reference its ID. Use Q.when() in case
                 # there is no parent.
                 Q.when(entityDfMap[c3ml.parentId]?.promise).then bindMeteor (parentId) ->
-                  modelDf = entityDfMap[c3mlId]
                   if colorOverride
                     fillColor = colorOverride
                   # If type is provided, don't use c3ml default color and only use param values if
@@ -222,7 +224,7 @@ EntityUtils =
                           fill_color: fill_color
                           border_color: border_color
                         inputs: inputs
-                    Entities.insert model, (err, insertId) ->
+                    callback = (err, insertId) ->
                       if err
                         Logger.error('Failed to insert entity', err)
                         try
@@ -241,6 +243,7 @@ EntityUtils =
                           Logger.debug('Inserted ' + insertedCount + '/' + c3mls.length +
                               ' entities')
                         modelDf.resolve(insertId)
+                    Entities.insert model, callback
 
               if typeName
                 getOrCreateTypologyByName(typeName).then(createEntity)
