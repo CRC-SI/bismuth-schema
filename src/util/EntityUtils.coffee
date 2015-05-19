@@ -27,7 +27,6 @@ EntityUtils =
     if args.c3mls
       info.c3mlsCount = args.c3mls.length
     Logger.info 'Importing entities from asset', info
-    if Meteor.isServer then FileLogger.log(args)
     df = Q.defer()
     if args.c3mls
       c3mlsPromise = Q.resolve(args.c3mls)
@@ -47,6 +46,7 @@ EntityUtils =
   fromC3mls: (args) ->
     c3mls = args.c3mls
     Logger.info 'Importing entities from', c3mls.length, 'c3mls...'
+    if Meteor.isServer then FileLogger.log(args)
 
     projectId = args.projectId ? Projects.getCurrentId()
     unless projectId
@@ -99,6 +99,7 @@ EntityUtils =
       getOrCreateTypologyByName = (name) ->
         typePromise = typePromiseMap[name]
         return typePromise if typePromise
+        Logger.debug('Creating type', name)
         typeDf = Q.defer()
         typePromiseMap[name] = typeDf.promise
         type = Typologies.findByName(name, projectId)
@@ -199,7 +200,7 @@ EntityUtils =
       geometryPromises = Q.all(_.values(geomDfMap))
       geometryPromises.fail(df.reject)
       geometryPromises.then bindMeteor =>
-        AtlasConverter.getInstance().then bindMeteor (converter) ->
+        AtlasConverter.getInstance().then bindMeteor (converter) =>
           Logger.info('Geometries parsed. Creating', sortedIds.length, 'entities...')
           _.each sortedIds, (c3mlId, c3mlIndex) =>
             c3ml = c3mlMap[c3mlId]
@@ -207,9 +208,9 @@ EntityUtils =
             height = entityParams.height ? entityParams.Height ? entityParams.HEIGHT ?
               entityParams.ROOMHEIGHT ? c3ml.height
             elevation = entityParams.Elevation ? entityParams.FLOORRL ? c3ml.altitude
-            Logger.debug('Waiting for geometry', c3mlId)
+            # Logger.debug('Waiting for geometry', c3mlId)
             geomDfMap[c3mlId].then bindMeteor (geomArgs) =>
-              Logger.debug('Geometry ready', c3mlId)
+              # Logger.debug('Geometry ready', c3mlId)
               modelDf = entityDfMap[c3mlId]
               # Geometry may be empty
               space = null
@@ -230,7 +231,7 @@ EntityUtils =
                 typeName = entityParams[typeParam] if typeValue?
                 delete inputs[typeParam]
 
-              createEntityArgs = Setter.merge({
+              createEntityArgs = _.extend({
                 c3ml: c3ml
                 c3mlIndex: c3mlIndex
                 entityDfMap: entityDfMap
@@ -280,7 +281,7 @@ EntityUtils =
 
   _createEntityFromAsset: (args) ->
     c3ml = args.c3ml
-    Logger.debug('Inserting entity', c3ml.id)
+    # Logger.debug('Inserting entity', c3ml.id)
     c3mlIndex = args.c3mlIndex
     entityDfMap = args.entityDfMap
     projectId = args.projectId
@@ -297,7 +298,7 @@ EntityUtils =
     # Wait until the parent is inserted so we can reference its ID. Use Q.when() in case
     # there is no parent.
     Q.when(entityDfMap[c3ml.parentId]?.promise).then bindMeteor (parentId) ->
-      Logger.debug('Parent ID', parentId)
+      # Logger.debug('Parent ID', parentId)
       # If type is provided, don't use c3ml default color and only use param values if
       # they exist to override the type color.
       fillColor = entityParams.FILLCOLOR ? (!typeId && c3ml.color)
