@@ -68,33 +68,25 @@ EntityUtils =
       # if we try to create the types with two entities. In this case, the second request should use
       # the existing type promise.
       typePromiseMap = {}
-
       # Colors that are assigned to newly created typologies which should be excluded from the
       # the next set of available colors. Since types are created asychronously
       # getNextAvailableColor() won't know to exclude the used colors until the insert is complete.
       usedColors = []
-
-      # A map of c3ml IDs to entity IDs used for finding the parentId of the entity model
-      # corresponding to that of the c3ml entity.
-      # idMap = {}
-
       # Edges formed from the entity graph which is used to topsort so we create children after
       # their parents and set the parentId field based on idMap.
       edges = []
-
       # A map of c3ml IDs for entities which are part of the topsort. Any c3ml not in this list is
       # added to the list of sorted ids after topsort is executed.
       sortMap = {}
-
       # A map of c3ml IDs to the c3ml entities which is used for lookups once the order of creation
       # has been decided.
       c3mlMap = {}
-
       # A map of c3ml IDs to promises of geometry arguments.
       geomDfMap = {}
-
       # A map of c3ml IDs to deferred promises of their model IDs.
       entityDfMap = {}
+      # Invalid parent entity references.
+      missingParentsIdMap = {}
 
       getOrCreateTypologyByName = (name) ->
         typePromise = typePromiseMap[name]
@@ -240,6 +232,11 @@ EntityUtils =
                 inputs: inputs
                 converter: converter
               }, args)
+
+              parentId = c3ml.parentId
+              if parentId && !modelDfs[parentId]?
+                missingParentsIdMap[parentId] = true
+
               createEntity = => @_createEntityFromAsset.call(@, createEntityArgs)
               modelDf.promise.then(incrementC3mlCount)
 
@@ -256,6 +253,10 @@ EntityUtils =
           importCount = modelDfs.length
           resolve = -> df.resolve(importCount)
           Logger.info 'Imported ' + importCount + ' entities'
+          missingParentIds = _.keys missingParentsIdMap
+          if missingParentIds.length > 0
+            Logger.error('Missing parent IDs', missingParentIds)
+
           if isLayer
             # Importing layers should not affect the location of the project.
             resolve()
