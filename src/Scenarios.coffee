@@ -20,20 +20,22 @@ if Meteor.isClient
   
   handle = null
   loadDf = null
+  
+  Scenarios.setUp = -> Tracker.autorun -> Scenarios.load()
+
   Scenarios.load = ->
-    Tracker.autorun ->
-      loadDf = Q.defer()
-      Scenarios.ready = -> loadDf.promise
-      # Listen to changes in the scenario and re-subscribe to entities.
-      scenarioId = ScenarioUtils.getCurrentId()
-      projectId = Projects.getCurrentId()
-      handle?.stop()
-      return unless projectId
-      EntityUtils.enableRendering(false)
-      handle = Meteor.subscribe 'entities', projectId, scenarioId, ->
-        EntityUtils.enableRendering(true)
-        loadDf.resolve()
-        PubSub.publish 'scenarios/loaded', scenarioId
+    loadDf = Q.defer()
+    Scenarios.ready = -> loadDf.promise
+    # Listen to changes in the scenario and re-subscribe to entities.
+    scenarioId = ScenarioUtils.getCurrentId()
+    projectId = Projects.getCurrentId()
+    handle?.stop()
+    return unless projectId
+    EntityUtils.enableRendering(false)
+    handle = Meteor.subscribe 'entities', projectId, scenarioId, ->
+      EntityUtils.enableRendering(true)
+      loadDf.resolve()
+      PubSub.publish 'scenarios/loaded', scenarioId
 
   Scenarios.unload = ->
     handle?.stop()
@@ -43,4 +45,4 @@ if Meteor.isClient
     Scenarios.unload()
     Scenarios.load()
 
-  Scenarios.load()
+  Scenarios.setUp()

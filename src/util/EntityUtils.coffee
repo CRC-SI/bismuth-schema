@@ -23,27 +23,47 @@ Meteor.startup ->
 EntityUtils =
 
   fromAsset: (args) ->
+    info = {fileId: args.fileId}
+    if args.c3mls
+      info.c3mlsCount = args.c3mls.length
+    Logger.info 'Importing entities from asset', info
     if Meteor.isServer then FileLogger.log(args)
-
     df = Q.defer()
-    modelDfs = []
-    c3mls = args.c3mls
-    unless Types.isArray(c3mls)
-      return Q.reject('C3ML not defined as an array.')
+    if args.c3mls
+      c3mlsPromise = Q.resolve(args.c3mls)
+    else if args.fileId
+      if Meteor.isServer
+        result = AssetUtils.fromFile(args.fileId, args)
+        c3mlsPromise = Q.resolve(result.c3mls)
+      else
+        c3mlsPromise = AssetUtils.fromFile(args.fileId, args).then (result) -> result.c3mls
+    else
+      return Q.reject('Either c3mls or fileId must be provided to EntityUtils.fromAsset()')
+    c3mlsPromise.fail(df.reject)
+    c3mlsPromise.then bindMeteor (c3mls) =>
+      df.resolve @fromC3mls(Setter.merge(args, {c3mls: c3mls}))
+    df.promise
 
-    colorOverride = args.color
-    isLayer = args.isLayer
+  fromC3mls: (args) ->
+    c3mls = args.c3mls
+    Logger.info 'Importing entities from', c3mls.length, 'c3mls...'
+
     projectId = args.projectId ? Projects.getCurrentId()
     unless projectId
       return Q.reject('No project provided.')
 
+    unless Types.isArray(c3mls)
+      return Q.reject('C3ML not defined as an array.')
+
+    df = Q.defer()
+    modelDfs = []
+    isLayer = args.isLayer
     if isLayer
       layerPromise = LayerUtils.fromC3mls c3mls,
         projectId: projectId
         name: args.filename ? c3mls[0].id
       modelDfs.push(layerPromise)
     else
-      insertedCount = 0
       # A map of type names to deferred promises for creating them. Used to prevent a race condition
       # if we try to create the types with two entities. In this case, the second request should use
       # the existing type promise.
@@ -102,6 +122,18 @@ EntityUtils =
 
       Logger.info('Inserting ' + c3mls.length + ' c3mls...')
 
+      insertedCount = 0
+      incrementC3mlCount = ->
+        insertedCount++
+        if insertedCount % 100 == 0 || insertedCount == c3mls.length
+          Logger.debug('Inserted ' + insertedCount + '/' + c3mls.length + ' entities')
+
+      geometryCount = 0
+      incrementGeometryCount = ->
+        geometryCount++
+        if geometryCount % 100 == 0 || geometryCount == c3mls.length
+          Logger.debug('Parsed ' + geometryCount + '/' + c3mls.length + ' geometries')
+
       _.each c3mls, (c3ml, i) ->
         entityId = c3ml.id
         c3mlMap[entityId] = c3ml
@@ -111,6 +143,7 @@ EntityUtils =
         entityDfMap[entityId] = modelDf
         geomDf = Q.defer()
         geomDfMap[entityId] = geomDf.promise
+        geomDf.promise.then -> incrementGeometryCount()
         type = AtlasConverter.sanitizeType(c3ml.type)
         parentId = c3ml.parentId
         if parentId
@@ -151,9 +184,7 @@ EntityUtils =
         else
           WKT.fromC3ml(c3ml).then(
             (wkt) ->
-              geomArgs = null
-              if wkt
-                geomArgs = {geom_2d: wkt, geom_2d_filename: filename}
+              geomArgs = if wkt then {geom_2d: wkt, geom_2d_filename: filename} else null
               geomDf.resolve(geomArgs)
             geomDf.reject
           )
@@ -165,15 +196,20 @@ EntityUtils =
         unless sortMap[id]
           sortedIds.push(id)
 
-      Q.all(_.values(geomDfMap)).then(
-        bindMeteor ->
-          _.each sortedIds, (c3mlId, c3mlIndex) ->
+      geometryPromises = Q.all(_.values(geomDfMap))
+      geometryPromises.fail(df.reject)
+      geometryPromises.then bindMeteor =>
+        AtlasConverter.getInstance().then bindMeteor (converter) ->
+          Logger.info('Geometries parsed. Creating', sortedIds.length, 'entities...')
+          _.each sortedIds, (c3mlId, c3mlIndex) =>
             c3ml = c3mlMap[c3mlId]
             entityParams = c3ml.properties ? {}
             height = entityParams.height ? entityParams.Height ? entityParams.HEIGHT ?
               entityParams.ROOMHEIGHT ? c3ml.height
             elevation = entityParams.Elevation ? entityParams.FLOORRL ? c3ml.altitude
-            Q.when(geomDfMap[c3mlId]).then bindMeteor (geomArgs) ->
+            Logger.debug('Waiting for geometry', c3mlId)
+            geomDfMap[c3mlId].then bindMeteor (geomArgs) =>
+              Logger.debug('Geometry ready', c3mlId)
               modelDf = entityDfMap[c3mlId]
               # Geometry may be empty
               space = null
@@ -194,63 +230,24 @@ EntityUtils =
                 typeName = entityParams[typeParam] if typeValue?
                 delete inputs[typeParam]
 
-              createEntity = bindMeteor (typeId) ->
-                # Wait until the parent is inserted so we can reference its ID. Use Q.when() in case
-                # there is no parent.
-                Q.when(entityDfMap[c3ml.parentId]?.promise).then bindMeteor (parentId) ->
-                  if colorOverride
-                    fillColor = colorOverride
-                  # If type is provided, don't use c3ml default color and only use param values if
-                  # they exist to override the type color.
-                  fillColor = entityParams.FILLCOLOR ? (!typeId && c3ml.color)
-                  borderColor = entityParams.BORDERCOLOR ? (!typeId && c3ml.borderColor)
-                  AtlasConverter.getInstance().then bindMeteor (converter) ->
-                    getDefaultName = 'Entity ' + (c3mlIndex + 1)
-                    name = c3ml.name ? entityParams.Name ? entityParams.NAME ?
-                      entityParams.BUILDINGKE ? entityParams.name ? getDefaultName
-                    if fillColor
-                      fill_color = converter.colorFromC3mlColor(fillColor).toString()
-                    if borderColor
-                      border_color = converter.colorFromC3mlColor(borderColor).toString()
-                    model =
-                      name: name
-                      project: projectId
-                      parent: parentId
-                      parameters:
-                        general:
-                          type: typeId
-                        space: space
-                        style:
-                          fill_color: fill_color
-                          border_color: border_color
-                        inputs: inputs
-                    callback = (err, insertId) ->
-                      if err
-                        Logger.error('Failed to insert entity', err)
-                        try
-                          entityStr = JSON.stringify(args)
-                          if entityStr.length > CONSOLE_LOG_SIZE_LIMIT && Meteor.isServer
-                            FileLogger.log(entityStr)
-                          else
-                            Logger.debug('Failed entity', entityStr)
-                        catch e
-                          Logger.error('Failed to log entity insert failure', e)
-                        modelDf.reject(err)
-                      else
-                        # idMap[c3mlId] = insertedId
-                        insertedCount++
-                        if insertedCount % 100 == 0 || insertedCount == c3mls.length
-                          Logger.debug('Inserted ' + insertedCount + '/' + c3mls.length +
-                              ' entities')
-                        modelDf.resolve(insertId)
-                    Entities.insert model, callback
+              createEntityArgs = Setter.merge({
+                c3ml: c3ml
+                c3mlIndex: c3mlIndex
+                entityDfMap: entityDfMap
+                projectId: projectId
+                space: space
+                inputs: inputs
+                converter: converter
+              }, args)
+              createEntity = => @_createEntityFromAsset.call(@, createEntityArgs)
+              modelDf.promise.then(incrementC3mlCount)
 
               if typeName
-                getOrCreateTypologyByName(typeName).then(createEntity)
+                getOrCreateTypologyByName(typeName).then bindMeteor (typeId) ->
+                  createEntityArgs.typeId = typeId
+                  createEntity()
               else
-                createEntity(null)
-        df.reject
-      )
+                createEntity()
 
     Q.all(modelDfs).then(
       bindMeteor ->
@@ -280,6 +277,67 @@ EntityUtils =
       df.reject
     )
     df.promise
+
+  _createEntityFromAsset: (args) ->
+    c3ml = args.c3ml
+    Logger.debug('Inserting entity', c3ml.id)
+    c3mlIndex = args.c3mlIndex
+    entityDfMap = args.entityDfMap
+    projectId = args.projectId
+    typeId = args.typeId
+    space = args.space
+    inputs = args.inputs
+    colorOverride = args.color
+    converter = args.converter
+    
+    c3mlId = c3ml.id
+    modelDf = entityDfMap[c3mlId]
+    entityParams = c3ml.properties ? {}
+
+    # Wait until the parent is inserted so we can reference its ID. Use Q.when() in case
+    # there is no parent.
+    Q.when(entityDfMap[c3ml.parentId]?.promise).then bindMeteor (parentId) ->
+      Logger.debug('Parent ID', parentId)
+      # If type is provided, don't use c3ml default color and only use param values if
+      # they exist to override the type color.
+      fillColor = entityParams.FILLCOLOR ? (!typeId && c3ml.color)
+      if colorOverride then fillColor = colorOverride
+      borderColor = entityParams.BORDERCOLOR ? (!typeId && c3ml.borderColor)
+      getDefaultName = 'Entity ' + (c3mlIndex + 1)
+      name = c3ml.name ? entityParams.Name ? entityParams.NAME ?
+          entityParams.BUILDINGKE ? entityParams.name ? getDefaultName
+      if fillColor
+        fill_color = converter.colorFromC3mlColor(fillColor).toString()
+      if borderColor
+        border_color = converter.colorFromC3mlColor(borderColor).toString()
+      model =
+        name: name
+        project: projectId
+        parent: parentId
+        parameters:
+          general:
+            type: typeId
+          space: space
+          style:
+            fill_color: fill_color
+            border_color: border_color
+          inputs: inputs
+      callback = (err, insertId) ->
+        if err
+          Logger.error('Failed to insert entity', err)
+          try
+            entityStr = JSON.stringify(args)
+            if entityStr.length > CONSOLE_LOG_SIZE_LIMIT && Meteor.isServer
+              FileLogger.log(entityStr)
+            else
+              Logger.debug('Failed entity', entityStr)
+          catch e
+            Logger.error('Failed to log entity insert failure', e)
+          modelDf.reject(err)
+        else
+          modelDf.resolve(insertId)
+      Entities.insert model, callback
+    modelDf.promise
 
   toGeoEntityArgs: (id, args) ->
     df = Q.defer()
