@@ -87,6 +87,8 @@ EntityUtils =
       entityDfMap = {}
       # Invalid parent entity references.
       missingParentsIdMap = {}
+      # A map of parent IDs to a map of children names to their IDs.
+      childrenNameMap = {}
 
       getOrCreateTypologyByName = (name) ->
         typePromise = typePromiseMap[name]
@@ -128,23 +130,23 @@ EntityUtils =
           Logger.debug('Parsed ' + geometryCount + '/' + c3mls.length + ' geometries')
 
       _.each c3mls, (c3ml, i) ->
-        entityId = c3ml.id
-        c3mlMap[entityId] = c3ml
+        c3mlId = c3ml.id
+        c3mlMap[c3mlId] = c3ml
         entityParams = c3ml.properties ? {}
         modelDf = Q.defer()
         modelDfs.push(modelDf.promise)
-        entityDfMap[entityId] = modelDf
+        entityDfMap[c3mlId] = modelDf
         geomDf = Q.defer()
-        geomDfMap[entityId] = geomDf.promise
+        geomDfMap[c3mlId] = geomDf.promise
         geomDf.promise.then -> incrementGeometryCount()
         type = AtlasConverter.sanitizeType(c3ml.type)
         parentId = c3ml.parentId
         if parentId
-          edges.push([parentId, entityId])
-          sortMap[parentId] = sortMap[entityId] = true
+          edges.push([parentId, c3mlId])
+          sortMap[parentId] = sortMap[c3mlId] = true
         # Create a pseudo-filename so the data is detected as a File rather than serialized JSON or
         # WKT.
-        filename = entityId + '.json'
+        filename = c3mlId + '.json'
         if type == 'mesh'
           c3mlStr = JSON.stringify({c3mls: [c3ml]})
           if c3mlStr.length < GEOMETRY_SIZE_LIMIT
@@ -200,9 +202,7 @@ EntityUtils =
             height = entityParams.height ? entityParams.Height ? entityParams.HEIGHT ?
               entityParams.ROOMHEIGHT ? c3ml.height
             elevation = entityParams.Elevation ? entityParams.FLOORRL ? c3ml.altitude
-            # Logger.debug('Waiting for geometry', c3mlId)
             geomDfMap[c3mlId].then bindMeteor (geomArgs) =>
-              # Logger.debug('Geometry ready', c3mlId)
               modelDf = entityDfMap[c3mlId]
               # Geometry may be empty
               space = null
@@ -210,8 +210,6 @@ EntityUtils =
                 space = _.extend geomArgs,
                   height: height
                   elevation: elevation
-              else
-                modelDf.resolve()
 
               typeName = null
               inputs = {}
@@ -231,10 +229,11 @@ EntityUtils =
                 space: space
                 inputs: inputs
                 converter: converter
+                childrenNameMap: childrenNameMap
               }, args)
 
               parentId = c3ml.parentId
-              if parentId && !modelDfs[parentId]?
+              if parentId && !entityDfMap[parentId]?
                 missingParentsIdMap[parentId] = true
 
               createEntity = => @_createEntityFromAsset.call(@, createEntityArgs)
@@ -282,7 +281,6 @@ EntityUtils =
 
   _createEntityFromAsset: (args) ->
     c3ml = args.c3ml
-    # Logger.debug('Inserting entity', c3ml.id)
     c3mlIndex = args.c3mlIndex
     entityDfMap = args.entityDfMap
     projectId = args.projectId
@@ -291,31 +289,42 @@ EntityUtils =
     inputs = args.inputs
     colorOverride = args.color
     converter = args.converter
+    childrenNameMap = args.childrenNameMap
     
     c3mlId = c3ml.id
+    parentId = c3ml.parentId
+    childrenNameMap[parentId] ?= {}
     modelDf = entityDfMap[c3mlId]
     entityParams = c3ml.properties ? {}
 
     # Wait until the parent is inserted so we can reference its ID. Use Q.when() in case
     # there is no parent.
-    Q.when(entityDfMap[c3ml.parentId]?.promise).then bindMeteor (parentId) ->
-      # Logger.debug('Parent ID', parentId)
+    Q.when(entityDfMap[parentId]?.promise).then bindMeteor (entityParamId) ->
+      # Determine the name by either using the one given or generating a default one.      
+      getDefaultName = Typologies.findOne(typeId)?.name ? 'Entity'
+      name = c3ml.name ? entityParams.Name ? entityParams.NAME ?
+          entityParams.name ? getDefaultName
+      # If the name is already taken by at least one other sibling, increment it with a numeric
+      # suffix.
+      commonNameSiblingIds = childrenNameMap[parentId][name] ?= []
+      if commonNameSiblingIds.length > 0
+        name = name + ' ' + (commonNameSiblingIds.length + 1)
+      commonNameSiblingIds.push(c3mlId)
+
       # If type is provided, don't use c3ml default color and only use param values if
       # they exist to override the type color.
       fillColor = entityParams.FILLCOLOR ? (!typeId && c3ml.color)
       if colorOverride then fillColor = colorOverride
       borderColor = entityParams.BORDERCOLOR ? (!typeId && c3ml.borderColor)
-      getDefaultName = 'Entity ' + (c3mlIndex + 1)
-      name = c3ml.name ? entityParams.Name ? entityParams.NAME ?
-          entityParams.BUILDINGKE ? entityParams.name ? getDefaultName
       if fillColor
         fill_color = converter.colorFromC3mlColor(fillColor).toString()
       if borderColor
         border_color = converter.colorFromC3mlColor(borderColor).toString()
+      
       model =
         name: name
         project: projectId
-        parent: parentId
+        parent: entityParamId
         parameters:
           general:
             type: typeId
@@ -579,9 +588,9 @@ EntityUtils =
       projectId = args.projectId ? Projects.getCurrentId()
       entities = Entities.findByProject(projectId).fetch()
     
-    childrenIds = {}
+    childrenIdMap = {}
     _.each ids, (id) ->
-      childrenIds[id] = Entities.find({parent: id}).map (entity) -> entity._id
+      childrenIdMap[id] = Entities.find({parent: id}).map (entity) -> entity._id
 
     promises = []
     WKT.getWKT bindMeteor (wkt) =>
@@ -661,11 +670,11 @@ EntityUtils =
             type: 'feature'
             displayMode: displayMode
             forms: forms
-        else if childrenIds[id]
+        else if childrenIdMap[id]
           c3mlEntities.push
             id: id
             type: 'collection'
-            children: childrenIds[id]
+            children: childrenIdMap[id]
 
       promises.push AtlasManager.renderEntities(c3mlEntities)
       Q.all(promises).then(
