@@ -73,15 +73,20 @@ EntityUtils =
 
   fromC3mls: (args) ->
     c3mls = args.c3mls
+    unless Types.isArray(c3mls)
+      return Q.reject('C3ML not defined as an array.')
+
     Logger.info 'Importing entities from', c3mls.length, 'c3mls...'
     if Meteor.isServer then FileLogger.log(args)
+
+    limit = args.limit
+    if limit
+      c3mls = c3mls.slice(0, limit)
+      Logger.info 'Limited to', limit, 'entities...'
 
     projectId = args.projectId ? Projects.getCurrentId()
     unless projectId
       return Q.reject('No project provided.')
-
-    unless Types.isArray(c3mls)
-      return Q.reject('C3ML not defined as an array.')
 
     df = Q.defer()
     modelDfs = []
@@ -527,10 +532,7 @@ EntityUtils =
     else if isCollection
       # Collections are rendered as empty collections. Once children are rendered, they add
       # themselves to the parent.
-      df.resolve(AtlasManager.createCollection(id, {
-        children: []
-        groupSelect: false
-      }))
+      df.resolve(AtlasManager.createCollection(id, {children: []}))
     else
       requirejs ['atlas/model/Feature'], bindMeteor (Feature) =>
         WKT.getWKT bindMeteor (wkt) =>
@@ -586,7 +588,9 @@ EntityUtils =
       if parentId
         @render(parentId).then (parentEntity) =>
           unless geoEntity.getParent()
-            parentEntity.addEntity(id)
+            # TODO(aramk) addEntity() may not be defined in the parent if it isn't a collection.
+            # Atlas doesn't support any GeoEnity having support for adding children.
+            parentEntity.addEntity?(id)
           @show(parentId)
       # Setting the display mode isn't enough to show the entity if we rendered a hidden geometry.
       @show(id)
@@ -778,14 +782,14 @@ EntityUtils =
     if AtlasManager.showEntity(id)
       ids = @_getChildrenFeatureIds(id)
       ids.push(id)
-      _.each ids, (id) -> PubSub.publish('entity/show', id)
+      PubSub.publish('entity/show', {ids: ids})
 
   hide: (id) ->
     return unless AtlasManager.getEntity(id)
     if AtlasManager.hideEntity(id)
       ids = @_getChildrenFeatureIds(id)
       ids.push(id)
-      _.each ids, (id) -> PubSub.publish('entity/hide', id)
+      PubSub.publish('entity/hide', {ids: ids})
 
   _getChildrenFeatureIds: (id) ->
     entity = AtlasManager.getFeature(id)
