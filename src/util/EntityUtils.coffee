@@ -28,6 +28,7 @@ Meteor.startup ->
 
 NameParamIds = ['Name', 'NAME', 'name']
 TypeParamIds = ['Type', 'TYPE', 'type', 'landuse', 'use']
+IfcTypeParamIds = ['space_code']
 HeightParamIds = ['height', 'Height', 'HEIGHT', 'ROOMHEIGHT']
 ElevationParamIds = ['Elevation', 'ELEVATION', 'elevation', 'FLOORRL']
 FillColorParamIds = ['FILLCOLOR']
@@ -85,6 +86,7 @@ EntityUtils =
     df = Q.defer()
     modelDfs = []
     isLayer = args.isLayer
+    isIfc = AssetUtils.getExtension(args.filename) == 'ifc'
     if isLayer
       layerPromise = LayerUtils.fromC3mls c3mls,
         projectId: projectId
@@ -244,6 +246,11 @@ EntityUtils =
               # Prevent WKT from being an input.
               delete inputs.WKT
               typeName = popParam(c3mlProps, TypeParamIds)
+              if isIfc
+                ifcType = popParam(c3mlProps, IfcTypeParamIds)
+                if ifcType
+                  if typeName then inputs.IfcType = typeName
+                  typeName = ifcType
 
               createEntityArgs = _.extend({
                 c3ml: c3ml
