@@ -26,8 +26,7 @@ Entities.getInputNames = (collection) ->
   entities = Collections.getItems(collection)
   allInputs = {}
   _.each entities, (entity) ->
-    _.each entity.parameters.inputs, (value, key) ->
-      allInputs[key] = true
+    _.each entity.parameters.inputs, (value, key) -> allInputs[key] = true
   Object.keys(allInputs)
 
 Entities.getChildren = (parentId) -> Entities.find({parent: parentId})

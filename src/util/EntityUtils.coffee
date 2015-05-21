@@ -1,3 +1,7 @@
+####################################################################################################
+# AUXILIARY
+####################################################################################################
+
 bindMeteor = Meteor.bindEnvironment.bind(Meteor)
 displayModeSessionVariable = 'entityDisplayMode'
 
@@ -12,13 +16,36 @@ renderQueue = null
 uploadQueue = null
 resetRenderQueue = -> renderQueue = new DeferredQueueMap()
 resetUploadQueue = -> uploadQueue = new DeferredQueue()
+
 renderingEnabled = true
 renderingEnabledDf = Q.defer()
 renderingEnabledDf.resolve()
 prevRenderingEnabledDf = null
+
 Meteor.startup ->
   resetRenderQueue()
   resetUploadQueue()
+
+NameParamIds = ['Name', 'NAME', 'name']
+TypeParamIds = ['Type', 'TYPE', 'type', 'landuse', 'use']
+HeightParamIds = ['height', 'Height', 'HEIGHT', 'ROOMHEIGHT']
+ElevationParamIds = ['Elevation', 'ELEVATION', 'elevation', 'FLOORRL']
+FillColorParamIds = ['FILLCOLOR']
+BorderColorParamIds = ['BORDERCOLOR']
+
+# Get parameter value using one of the given parameter IDs. Remove all values for all 
+# parameter IDs to prevent them appearing in the imported inputs, since the parameter will be used
+# in the native schema.
+popParam = (params, paramIds) ->
+  value = null
+  _.each paramIds, (paramId) ->
+    value ?= params[paramId]
+    delete params[paramId]
+  value
+
+####################################################################################################
+# END AUXILIARY
+####################################################################################################
 
 EntityUtils =
 
@@ -132,7 +159,7 @@ EntityUtils =
       _.each c3mls, (c3ml, i) ->
         c3mlId = c3ml.id
         c3mlMap[c3mlId] = c3ml
-        entityParams = c3ml.properties ? {}
+        c3mlProps = c3ml.properties ? {}
         modelDf = Q.defer()
         modelDfs.push(modelDf.promise)
         entityDfMap[c3mlId] = modelDf
@@ -198,10 +225,11 @@ EntityUtils =
           Logger.info('Geometries parsed. Creating', sortedIds.length, 'entities...')
           _.each sortedIds, (c3mlId, c3mlIndex) =>
             c3ml = c3mlMap[c3mlId]
-            entityParams = c3ml.properties ? {}
-            height = entityParams.height ? entityParams.Height ? entityParams.HEIGHT ?
-              entityParams.ROOMHEIGHT ? c3ml.height
-            elevation = entityParams.Elevation ? entityParams.FLOORRL ? c3ml.altitude
+            c3mlProps = c3ml.properties
+            height = popParam(c3mlProps, HeightParamIds)
+            height ?= c3ml.height
+            elevation = popParam(c3mlProps, ElevationParamIds)
+            elevation ?= c3ml.altitude
             geomDfMap[c3mlId].then bindMeteor (geomArgs) =>
               modelDf = entityDfMap[c3mlId]
               # Geometry may be empty
@@ -212,14 +240,10 @@ EntityUtils =
                   elevation: elevation
 
               typeName = null
-              inputs = {}
-              _.each entityParams, (value, name) ->
-                value = parseFloat(value)
-                inputs[name] = value unless isNaN(value)
-              _.each ['Type', 'TYPE', 'type', 'landuse', 'use'], (typeParam) ->
-                typeValue = entityParams[typeParam]
-                typeName = entityParams[typeParam] if typeValue?
-                delete inputs[typeParam]
+              inputs = c3mlProps
+              # Prevent WKT from being an input.
+              delete inputs.WKT
+              typeName = popParam(c3mlProps, TypeParamIds)
 
               createEntityArgs = _.extend({
                 c3ml: c3ml
@@ -295,15 +319,14 @@ EntityUtils =
     parentId = c3ml.parentId
     childrenNameMap[parentId] ?= {}
     modelDf = entityDfMap[c3mlId]
-    entityParams = c3ml.properties ? {}
+    c3mlProps = c3ml.properties
 
     # Wait until the parent is inserted so we can reference its ID. Use Q.when() in case
     # there is no parent.
     Q.when(entityDfMap[parentId]?.promise).then bindMeteor (entityParamId) ->
       # Determine the name by either using the one given or generating a default one.      
       getDefaultName = Typologies.findOne(typeId)?.name ? 'Entity'
-      name = c3ml.name ? entityParams.Name ? entityParams.NAME ?
-          entityParams.name ? getDefaultName
+      name = c3ml.name ? popParam(c3mlProps, NameParamIds) ? getDefaultName
       # If the name is already taken by at least one other sibling, increment it with a numeric
       # suffix.
       commonNameSiblingIds = childrenNameMap[parentId][name] ?= []
@@ -313,9 +336,9 @@ EntityUtils =
 
       # If type is provided, don't use c3ml default color and only use param values if
       # they exist to override the type color.
-      fillColor = entityParams.FILLCOLOR ? (!typeId && c3ml.color)
+      fillColor = popParam(c3mlProps, FillColorParamIds) ? (!typeId && c3ml.color)
       if colorOverride then fillColor = colorOverride
-      borderColor = entityParams.BORDERCOLOR ? (!typeId && c3ml.borderColor)
+      borderColor = popParam(c3mlProps, BorderColorParamIds) ? (!typeId && c3ml.borderColor)
       if fillColor
         fill_color = converter.colorFromC3mlColor(fillColor).toString()
       if borderColor
