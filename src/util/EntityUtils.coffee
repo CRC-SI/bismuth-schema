@@ -90,6 +90,8 @@ EntityUtils =
 
     df = Q.defer()
     modelDfs = []
+    # Invalid parent entity references.
+    missingParentsIdMap = {}
     isLayer = args.isLayer
     isIfc = AssetUtils.getExtension(args.filename) == 'ifc'
     if isLayer
@@ -119,8 +121,6 @@ EntityUtils =
       geomDfMap = {}
       # A map of c3ml IDs to deferred promises of their model IDs.
       entityDfMap = {}
-      # Invalid parent entity references.
-      missingParentsIdMap = {}
       # A map of parent IDs to a map of children names to their IDs.
       childrenNameMap = {}
       scheduler = new TaskScheduler()
