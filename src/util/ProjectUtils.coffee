@@ -137,3 +137,11 @@ ProjectUtils =
   getDatedIdentifier: (id) ->
     id ?= Projects.getCurrentId()
     'project-' + id + Dates.toIdentifier(moment())
+
+  assertAuthorization: (projectId, userId) ->
+    unless projectId?
+      throw new Meteor.Error(500, 'No project specified when subscribing.')
+    unless userId?
+      throw new Meteor.Error(403, 'No user provided')
+    unless AccountsUtil.isOwner(Projects.findOne(projectId), userId)
+      throw new Meteor.Error(403, 'User not authorized to view project collections.')
