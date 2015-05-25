@@ -123,6 +123,7 @@ EntityUtils =
       missingParentsIdMap = {}
       # A map of parent IDs to a map of children names to their IDs.
       childrenNameMap = {}
+      scheduler = new TaskScheduler()
 
       getOrCreateTypologyByName = (name) ->
         typePromise = typePromiseMap[name]
@@ -173,50 +174,55 @@ EntityUtils =
         geomDf = Q.defer()
         geomDfMap[c3mlId] = geomDf.promise
         geomDf.promise.then -> incrementGeometryCount()
-        type = AtlasConverter.sanitizeType(c3ml.type)
-        parentId = c3ml.parentId
-        if parentId
-          edges.push([parentId, c3mlId])
-          sortMap[parentId] = sortMap[c3mlId] = true
-        # Create a pseudo-filename so the data is detected as a File rather than serialized JSON or
-        # WKT.
-        filename = c3mlId + '.json'
-        if type == 'mesh'
-          c3mlStr = JSON.stringify({c3mls: [c3ml]})
-          if c3mlStr.length < GEOMETRY_SIZE_LIMIT
-            # If the c3ml is less than 10MB, just store it in the document directly. A document has
-            # a 16MB limit.
-            geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
+
+        scheduler.add ->
+          type = AtlasConverter.sanitizeType(c3ml.type)
+          parentId = c3ml.parentId
+          if parentId
+            edges.push([parentId, c3mlId])
+            sortMap[parentId] = sortMap[c3mlId] = true
+          # Create a pseudo-filename so the data is detected as a File rather than serialized JSON
+          # or WKT.
+          filename = c3mlId + '.json'
+          if type == 'mesh'
+            c3mlStr = JSON.stringify({c3mls: [c3ml]})
+            if c3mlStr.length < GEOMETRY_SIZE_LIMIT
+              # If the c3ml is less than 10MB, just store it in the document directly. A document
+              # has a 16MB limit.
+              geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
+            else
+              Logger.info('Inserting a mesh exceeding file size limits:', c3mlStr.length, 'bytes')
+              # Upload a single file at a time to avoid tripping up CollectionFS.
+              uploadQueue.add ->
+                uploadDf = Q.defer()
+                # Store the mesh as a separate file and use the file ID as the geom_3d value.
+                c3ml.project = projectId
+                file = new FS.File()
+                file.attachData(Arrays.arrayBufferFromString(c3mlStr), type: 'application/json')
+                Files.upload(file).then(
+                  (fileObj) ->
+                    fileId = fileObj._id
+                    Logger.info('Inserted a mesh exceeding file size limits:', fileId)
+                    geomDf.resolve(geom_3d: fileId, geom_3d_filename: filename)
+                    uploadDf.resolve(fileObj)
+                  (err) ->
+                    geomDf.reject(err)
+                    uploadDf.reject(err)
+                )
+                return uploadDf.promise
+          else if type == 'collection'
+            # Ignore collection since it only contains children c3ml IDs.
+            geomDf.resolve(null)
           else
-            Logger.info('Inserting a mesh exceeding file size limits:', c3mlStr.length, 'bytes')
-            # Upload a single file at a time to avoid tripping up CollectionFS.
-            uploadQueue.add ->
-              uploadDf = Q.defer()
-              # Store the mesh as a separate file and use the file ID as the geom_3d value.
-              c3ml.project = projectId
-              file = new FS.File()
-              file.attachData(Arrays.arrayBufferFromString(c3mlStr), type: 'application/json')
-              Files.upload(file).then(
-                (fileObj) ->
-                  fileId = fileObj._id
-                  Logger.info('Inserted a mesh exceeding file size limits:', fileId)
-                  geomDf.resolve(geom_3d: fileId, geom_3d_filename: filename)
-                  uploadDf.resolve(fileObj)
-                (err) ->
-                  geomDf.reject(err)
-                  uploadDf.reject(err)
-              )
-              return uploadDf.promise
-        else if type == 'collection'
-          # Ignore collection since it only contains children c3ml IDs.
-          geomDf.resolve(null)
-        else
-          WKT.fromC3ml(c3ml).then(
-            (wkt) ->
-              geomArgs = if wkt then {geom_2d: wkt, geom_2d_filename: filename} else null
-              geomDf.resolve(geomArgs)
-            geomDf.reject
-          )
+            WKT.fromC3ml(c3ml).then(
+              (wkt) ->
+                geomArgs = if wkt then {geom_2d: wkt, geom_2d_filename: filename} else null
+                geomDf.resolve(geomArgs)
+              geomDf.reject
+            )
+          geomDf.promise
+
+      scheduler.run()
 
       # Add any entities which are not part of a hierarchy and weren't in the topological sort.
       sortedIds = topsort(edges)
@@ -231,56 +237,60 @@ EntityUtils =
         AtlasConverter.getInstance().then bindMeteor (converter) =>
           Logger.info('Geometries parsed. Creating', sortedIds.length, 'entities...')
           _.each sortedIds, (c3mlId, c3mlIndex) =>
-            c3ml = c3mlMap[c3mlId]
-            c3mlProps = c3ml.properties
-            height = popParam(c3mlProps, HeightParamIds)
-            height ?= c3ml.height
-            elevation = popParam(c3mlProps, ElevationParamIds)
-            elevation ?= c3ml.altitude
-            geomDfMap[c3mlId].then bindMeteor (geomArgs) =>
-              modelDf = entityDfMap[c3mlId]
-              # Geometry may be empty
-              space = null
-              if geomArgs
-                space = _.extend geomArgs,
-                  height: height
-                  elevation: elevation
+            modelDf = entityDfMap[c3mlId]
+            scheduler.add =>
+              c3ml = c3mlMap[c3mlId]
+              c3mlProps = c3ml.properties
+              height = popParam(c3mlProps, HeightParamIds)
+              height ?= c3ml.height
+              elevation = popParam(c3mlProps, ElevationParamIds)
+              elevation ?= c3ml.altitude
+              geomDfMap[c3mlId].then bindMeteor (geomArgs) =>
+                # Geometry may be empty
+                space = null
+                if geomArgs
+                  space = _.extend geomArgs,
+                    height: height
+                    elevation: elevation
 
-              typeName = null
-              inputs = c3mlProps
-              # Prevent WKT from being an input.
-              delete inputs.WKT
-              typeName = popParam(c3mlProps, TypeParamIds)
-              if isIfc
-                ifcType = popParam(c3mlProps, IfcTypeParamIds)
-                if ifcType
-                  if typeName then inputs.IfcType = typeName
-                  typeName = ifcType
+                typeName = null
+                inputs = c3mlProps
+                # Prevent WKT from being an input.
+                delete inputs.WKT
+                typeName = popParam(c3mlProps, TypeParamIds)
+                if isIfc
+                  ifcType = popParam(c3mlProps, IfcTypeParamIds)
+                  if ifcType
+                    if typeName then inputs.IfcType = typeName
+                    typeName = ifcType
 
-              createEntityArgs = _.extend({
-                c3ml: c3ml
-                c3mlIndex: c3mlIndex
-                entityDfMap: entityDfMap
-                projectId: projectId
-                space: space
-                inputs: inputs
-                converter: converter
-                childrenNameMap: childrenNameMap
-              }, args)
+                createEntityArgs = _.extend({
+                  c3ml: c3ml
+                  c3mlIndex: c3mlIndex
+                  entityDfMap: entityDfMap
+                  projectId: projectId
+                  space: space
+                  inputs: inputs
+                  converter: converter
+                  childrenNameMap: childrenNameMap
+                }, args)
 
-              parentId = c3ml.parentId
-              if parentId && !entityDfMap[parentId]?
-                missingParentsIdMap[parentId] = true
+                parentId = c3ml.parentId
+                if parentId && !entityDfMap[parentId]?
+                  missingParentsIdMap[parentId] = true
 
-              createEntity = => @_createEntityFromAsset.call(@, createEntityArgs)
-              modelDf.promise.then(incrementC3mlCount)
+                createEntity = => @_createEntityFromAsset.call(@, createEntityArgs)
+                modelDf.promise.then(incrementC3mlCount)
 
-              if typeName
-                getOrCreateTypologyByName(typeName).then bindMeteor (typeId) ->
-                  createEntityArgs.typeId = typeId
+                if typeName
+                  getOrCreateTypologyByName(typeName).then bindMeteor (typeId) ->
+                    createEntityArgs.typeId = typeId
+                    createEntity()
+                else
                   createEntity()
-              else
-                createEntity()
+
+              modelDf.promise
+          scheduler.run()
 
     Q.all(modelDfs).then(
       bindMeteor ->

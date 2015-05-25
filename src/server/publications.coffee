@@ -16,9 +16,11 @@ Meteor.publish 'userData', ->
   Meteor.users.find({}, {fields: {profile: 1, emails: 1, roles: 1, username: 1}})
 
 authorize = (projectId, callback) ->
+  # Ignore the request if no user ID exists.
+  unless @userId then return []
   try
     ProjectUtils.assertAuthorization(projectId, @userId)
     callback.call(@)
   catch e
-    Logger.error('Error in publications', e)
+    Logger.error('Error in publications', e, e.stack)
     @error(e)
