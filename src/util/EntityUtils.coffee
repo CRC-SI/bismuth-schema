@@ -459,12 +459,6 @@ EntityUtils =
     Files.downloadJson(value)
 
   _buildGeometryFromFile: (id, paramId) ->
-    # paramId ?= 'geom_3d'
-    # entity = Entities.findOne(id)
-    # fileId = SchemaUtils.getParameterValue(entity, 'space.' + paramId)
-    # unless fileId
-    #   return Q.when(null)
-    # GeometryUtils.buildGeometryFromFile(fileId, {collectionId: collectionId})
     collectionId = id + '-' + paramId
     df = Q.defer()
     @_getGeometryFromFile(id, paramId).then(
