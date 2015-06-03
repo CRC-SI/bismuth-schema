@@ -123,7 +123,7 @@ EntityUtils =
       entityDfMap = {}
       # A map of parent IDs to a map of children names to their IDs.
       childrenNameMap = {}
-      scheduler = new TaskScheduler()
+      scheduler = new TaskRunner()
 
       getOrCreateTypologyByName = (name) ->
         typePromise = typePromiseMap[name]
