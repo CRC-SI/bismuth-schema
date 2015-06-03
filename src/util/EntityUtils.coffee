@@ -2,7 +2,6 @@
 # AUXILIARY
 ####################################################################################################
 
-bindMeteor = Meteor.bindEnvironment.bind(Meteor)
 displayModeSessionVariable = 'entityDisplayMode'
 
 renderCount = new ReactiveVar(0)
@@ -67,7 +66,7 @@ EntityUtils =
     else
       return Q.reject('Either c3mls or fileId must be provided to EntityUtils.fromAsset()')
     c3mlsPromise.fail(df.reject)
-    c3mlsPromise.then bindMeteor (c3mls) =>
+    c3mlsPromise.then Meteor.bindEnvironment (c3mls) =>
       df.resolve @fromC3mls(Setter.merge(args, {c3mls: c3mls}))
     df.promise
 
@@ -123,7 +122,7 @@ EntityUtils =
       entityDfMap = {}
       # A map of parent IDs to a map of children names to their IDs.
       childrenNameMap = {}
-      scheduler = new TaskRunner()
+      runner = new TaskRunner()
 
       getOrCreateTypologyByName = (name) ->
         typePromise = typePromiseMap[name]
@@ -175,7 +174,7 @@ EntityUtils =
         geomDfMap[c3mlId] = geomDf.promise
         geomDf.promise.then -> incrementGeometryCount()
 
-        scheduler.add ->
+        runner.add ->
           type = AtlasConverter.sanitizeType(c3ml.type)
           parentId = c3ml.parentId
           if parentId
@@ -222,8 +221,6 @@ EntityUtils =
             )
           geomDf.promise
 
-      scheduler.run()
-
       # Add any entities which are not part of a hierarchy and weren't in the topological sort.
       sortedIds = topsort(edges)
       _.each c3mls, (c3ml) ->
@@ -231,21 +228,22 @@ EntityUtils =
         unless sortMap[id]
           sortedIds.push(id)
 
+      runner.run()
       geometryPromises = Q.all(_.values(geomDfMap))
       geometryPromises.fail(df.reject)
-      geometryPromises.then bindMeteor =>
-        AtlasConverter.getInstance().then bindMeteor (converter) =>
+      geometryPromises.then Meteor.bindEnvironment =>
+        AtlasConverter.getInstance().then Meteor.bindEnvironment (converter) =>
           Logger.info('Geometries parsed. Creating', sortedIds.length, 'entities...')
           _.each sortedIds, (c3mlId, c3mlIndex) =>
             modelDf = entityDfMap[c3mlId]
-            scheduler.add =>
+            runner.add =>
               c3ml = c3mlMap[c3mlId]
               c3mlProps = c3ml.properties
               height = popParam(c3mlProps, HeightParamIds)
               height ?= c3ml.height
               elevation = popParam(c3mlProps, ElevationParamIds)
               elevation ?= c3ml.altitude
-              geomDfMap[c3mlId].then bindMeteor (geomArgs) =>
+              geomDfMap[c3mlId].then Meteor.bindEnvironment (geomArgs) =>
                 # Geometry may be empty
                 space = null
                 if geomArgs
@@ -283,18 +281,18 @@ EntityUtils =
                 modelDf.promise.then(incrementC3mlCount)
 
                 if typeName
-                  getOrCreateTypologyByName(typeName).then bindMeteor (typeId) ->
+                  getOrCreateTypologyByName(typeName).then Meteor.bindEnvironment (typeId) ->
                     createEntityArgs.typeId = typeId
                     createEntity()
                 else
                   createEntity()
 
               modelDf.promise
-          scheduler.run()
 
+    runner.run()
     Q.all(modelDfs).then(
-      bindMeteor ->
-        requirejs ['atlas/model/GeoPoint'], bindMeteor (GeoPoint) ->
+      Meteor.bindEnvironment ->
+        requirejs ['atlas/model/GeoPoint'], Meteor.bindEnvironment (GeoPoint) ->
           importCount = modelDfs.length
           resolve = -> df.resolve(importCount)
           Logger.info 'Imported ' + importCount + ' entities'
@@ -345,7 +343,7 @@ EntityUtils =
 
     # Wait until the parent is inserted so we can reference its ID. Use Q.when() in case
     # there is no parent.
-    Q.when(entityDfMap[parentId]?.promise).then bindMeteor (entityParamId) ->
+    Q.when(entityDfMap[parentId]?.promise).then Meteor.bindEnvironment (entityParamId) ->
       # Determine the name by either using the one given or generating a default one.      
       getDefaultName = Typologies.findOne(typeId)?.name ? 'Entity'
       name = c3ml.name ? popParam(c3mlProps, NameParamIds) ? getDefaultName
@@ -403,7 +401,7 @@ EntityUtils =
     typeFillColor = type && SchemaUtils.getParameterValue(type, 'style.fill_color')
     typeBorderColor = type && SchemaUtils.getParameterValue(type, 'style.border_color')
     AtlasConverter.getInstance().then(
-      bindMeteor (converter) =>
+      Meteor.bindEnvironment (converter) =>
         style = model.parameters.style
         fill_color = style?.fill_color ? typeFillColor ? '#eee'
         border_color = style?.border_color ? typeBorderColor
@@ -462,7 +460,7 @@ EntityUtils =
     collectionId = id + '-' + paramId
     df = Q.defer()
     @_getGeometryFromFile(id, paramId).then(
-      bindMeteor (geom) ->
+      Meteor.bindEnvironment (geom) ->
         df.resolve(GeometryUtils.buildGeometryFromC3ml(geom, {collectionId: collectionId}))
       df.reject
     )
@@ -474,11 +472,11 @@ EntityUtils =
     unless geom_2d
       return Q.when(null)
     df = Q.defer()
-    WKT.getWKT bindMeteor (wkt) =>
+    WKT.getWKT Meteor.bindEnvironment (wkt) =>
       isWKT = wkt.isWKT(geom_2d)
       if isWKT
         # Hidden by default since we change the display mode to toggle visibility.
-        @toGeoEntityArgs(id, {show: false}).then bindMeteor (entityArgs) =>
+        @toGeoEntityArgs(id, {show: false}).then Meteor.bindEnvironment (entityArgs) =>
           geoEntity = AtlasManager.renderEntity(entityArgs)
           df.resolve(geoEntity)
       else
@@ -509,7 +507,7 @@ EntityUtils =
 
   render: (id, args) ->
     df = Q.defer()
-    renderingEnabledDf.promise.then bindMeteor =>
+    renderingEnabledDf.promise.then Meteor.bindEnvironment =>
       renderQueue.add id, => @_render(id, args).then(df.resolve, df.reject)
     df.promise
 
@@ -538,11 +536,11 @@ EntityUtils =
       # themselves to the parent.
       df.resolve(AtlasManager.createCollection(id, {children: []}))
     else
-      requirejs ['atlas/model/Feature'], bindMeteor (Feature) =>
-        WKT.getWKT bindMeteor (wkt) =>
+      requirejs ['atlas/model/Feature'], Meteor.bindEnvironment (Feature) =>
+        WKT.getWKT Meteor.bindEnvironment (wkt) =>
           isWKT = wkt.isWKT(geom_2d)
           Q.all([@_render2dGeometry(id), @_render3dGeometry(id)]).then(
-            bindMeteor (geometries) =>
+            Meteor.bindEnvironment (geometries) =>
               entity2d = geometries[0]
               entity3d = geometries[1]
               unless entity2d || entity3d
@@ -559,7 +557,7 @@ EntityUtils =
                 # WKT, the geometry is a collection rather than a feature. Create a new
                 # feature to store both 2d and 3d geometries.
                 @toGeoEntityArgs(id, {vertices: null}).then(
-                  bindMeteor (args) ->
+                  Meteor.bindEnvironment (args) ->
                     geoEntity = AtlasManager.renderEntity(args)
                     addedGeometry.push(geoEntity)
                     if entity2d
@@ -570,7 +568,7 @@ EntityUtils =
                   geoEntityDf.reject
                 )
               geoEntityDf.promise.then(
-                bindMeteor (geoEntity) =>
+                Meteor.bindEnvironment (geoEntity) =>
                   if entity3d
                     geoEntity.setForm(Feature.DisplayMode.MESH, entity3d)
                   df.resolve(geoEntity)
@@ -578,7 +576,7 @@ EntityUtils =
               )
             df.reject
           )
-    df.promise.then bindMeteor (geoEntity) =>
+    df.promise.then Meteor.bindEnvironment (geoEntity) =>
       return unless geoEntity
       # TODO(aramk) Rendering the parent as a special case with children doesn't affect the
       # visualisation at this point.
@@ -606,7 +604,7 @@ EntityUtils =
 
   renderAll: (args) ->
     df = Q.defer()
-    renderingEnabledDf.promise.then bindMeteor =>
+    renderingEnabledDf.promise.then Meteor.bindEnvironment =>
       # renderDfs = []
       # models = Entities.findByProject().fetch()
       @_chooseDisplayMode()
@@ -631,7 +629,7 @@ EntityUtils =
       childrenIdMap[id] = Entities.find({parent: id}).map (entity) -> entity._id
 
     promises = []
-    WKT.getWKT bindMeteor (wkt) =>
+    WKT.getWKT Meteor.bindEnvironment (wkt) =>
       c3mlEntities = []
 
       _.each entities, (entity) =>
@@ -716,7 +714,7 @@ EntityUtils =
 
       promises.push AtlasManager.renderEntities(c3mlEntities)
       Q.all(promises).then(
-        bindMeteor (results) ->
+        Meteor.bindEnvironment (results) ->
           c3mlEntities = []
           _.each results, (result) ->
             if Types.isArray(result)
@@ -731,7 +729,7 @@ EntityUtils =
   renderAllAndZoom: ->
     df = Q.defer()
     @renderAll().then(
-      bindMeteor (c3mlEntities) =>
+      Meteor.bindEnvironment (c3mlEntities) =>
         df.resolve(c3mlEntities)
         if c3mlEntities.length == 0
           ProjectUtils.zoomTo()
@@ -765,7 +763,7 @@ EntityUtils =
   _renderEntity: (id, args) ->
     df = Q.defer()
     @toGeoEntityArgs(id, args).then(
-      bindMeteor (entityArgs) ->
+      Meteor.bindEnvironment (entityArgs) ->
         unless entityArgs
           console.error('Cannot render - no entityArgs')
           return
@@ -776,7 +774,7 @@ EntityUtils =
 
   unrender: (id) ->
     df = Q.defer()
-    renderingEnabledDf.promise.then bindMeteor ->
+    renderingEnabledDf.promise.then Meteor.bindEnvironment ->
       renderQueue.add id, ->
         AtlasManager.unrenderEntity(id)
         df.resolve(id)
@@ -844,7 +842,7 @@ EntityUtils =
       unrenderPromises = _.map ids, (id) => @unrender(id)
     else
       unrenderPromises = []
-    Q.all(unrenderPromises).then bindMeteor =>
+    Q.all(unrenderPromises).then Meteor.bindEnvironment =>
       renderPromise = @_renderBulk({ids: ids, projectId: projectId})
       renderPromise.then -> 
         geoEntities = _.map ids, (id) -> AtlasManager.getEntity(id)
@@ -854,7 +852,7 @@ EntityUtils =
         _.each entitiesJson, (json) -> json.type = json.type.toUpperCase()
         df.resolve(c3mls: entitiesJson)
       # Unrender all entities when on the server to prevent using old rendered data.
-      renderPromise.fin bindMeteor => if Meteor.isServer then _.each ids, (id) => @unrender(id)
+      renderPromise.fin Meteor.bindEnvironment => if Meteor.isServer then _.each ids, (id) => @unrender(id)
     df.promise
 
     # entities = _.filter entities, (entity) -> !entity.parent
@@ -899,7 +897,7 @@ EntityUtils =
       else
         Logger.error('Could not download entities.')
 
-WKT.getWKT bindMeteor (wkt) ->
+WKT.getWKT Meteor.bindEnvironment (wkt) ->
   _.extend EntityUtils,
 
     getFormType2d: (id) ->
