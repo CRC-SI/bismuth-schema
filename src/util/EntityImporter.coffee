@@ -186,6 +186,7 @@ EntityImporter =
               elevation = popParam(c3mlProps, ElevationParamIds)
               elevation ?= c3ml.altitude
               geomDfMap[c3mlId].then Meteor.bindEnvironment (geomArgs) =>
+                if geomArgs then geomArgs = @_mapGeometry(geomArgs) ? geomArgs
 
                 # Geometry may be empty
                 space = null
@@ -265,52 +266,94 @@ EntityImporter =
             resolve()
     df.promise
 
+  ##################################################################################################
+  # GEOMETRY
+  ##################################################################################################
+
   _geometryFromC3ml: (c3ml, geomDf) ->
-    c3mlId = c3ml.id
     type = AtlasConverter.sanitizeType(c3ml.type)
-    parentId = c3ml.parentId
-    if parentId
-      edges.push([parentId, c3mlId])
-      sortMap[parentId] = sortMap[c3mlId] = true
-    # Create a pseudo-filename so the data is detected as a File rather than serialized JSON
-    # or WKT.
-    filename = c3mlId + '.json'
     if type == 'mesh'
-      c3mlStr = JSON.stringify({c3mls: [c3ml]})
-      if c3mlStr.length < GEOMETRY_SIZE_LIMIT
-        # If the c3ml is less than 10MB, just store it in the document directly. A document
-        # has a 16MB limit.
-        geomDf.resolve(geom_3d: c3mlStr, geom_3d_filename: filename)
-      else
-        Logger.info('Inserting a mesh exceeding file size limits:', c3mlStr.length, 'bytes')
-        # Upload a single file at a time to avoid tripping up CollectionFS.
-        uploadQueue.add ->
-          uploadDf = Q.defer()
-          # Store the mesh as a separate file and use the file ID as the geom_3d value.
-          file = new FS.File()
-          file.attachData(Arrays.arrayBufferFromString(c3mlStr), type: 'application/json')
-          Files.upload(file).then(
-            (fileObj) ->
-              fileId = fileObj._id
-              Logger.info('Inserted a mesh exceeding file size limits:', fileId)
-              geomDf.resolve(geom_3d: fileId, geom_3d_filename: filename)
-              uploadDf.resolve(fileObj)
-            (err) ->
-              geomDf.reject(err)
-              uploadDf.reject(err)
-          )
-          return uploadDf.promise
+      @_geometryFromC3mlMesh(c3ml, geomDf)
+    else if type == 'polygon'
+      @_geometryFromC3mlPolygon(c3ml, geomDf)
     else if type == 'collection'
-      # Ignore collection since it only contains children c3ml IDs.
-      geomDf.resolve(null)
+      @_geometryFromC3mlCollection(c3ml, geomDf)
+    else if type == 'feature'
+      @_geometryFromC3mlFeature(c3ml, geomDf)
     else
-      WKT.fromC3ml(c3ml).then(
-        (wkt) ->
-          geomArgs = if wkt then {geom_2d: wkt, geom_2d_filename: filename} else null
-          geomDf.resolve(geomArgs)
-        geomDf.reject
-      )
+      Logger.warn('Skipping unhandled c3ml', c3ml)
     geomDf.promise
+
+  _geometryFromC3mlMesh: (c3ml, geomDf) ->
+    # C3ML data mesh.
+    c3mlStr = JSON.stringify(c3mls: [c3ml])
+    if c3mlStr.length < GEOMETRY_SIZE_LIMIT
+      # If the c3ml is less than the size limit, just store it in the document directly. A document
+      # has a 16MB limit.
+      geomDf.resolve(mesh: {data: c3mlStr})
+    else
+      Logger.info 'Inserting a mesh exceeding file size limits:', c3mlStr.length, 'bytes'
+      # Upload a single file at a time to avoid tripping up CollectionFS.
+      uploadQueue.add ->
+        uploadDf = Q.defer()
+        # Store the mesh as a separate file and use the file ID as the value.
+        file = new FS.File()
+        file.attachData(Arrays.arrayBufferFromString(c3mlStr), type: 'application/json')
+        Files.upload(file).then(
+          (fileObj) ->
+            fileId = fileObj._id
+            Logger.info 'Inserted a mesh exceeding file size limits:', fileId
+            geomDf.resolve(mesh: {fileId: fileId})
+            uploadDf.resolve(fileObj)
+          (err) ->
+            geomDf.reject(err)
+            uploadDf.reject(err)
+        )
+        return uploadDf.promise
+
+  _geometryFromC3mlPolygon: (c3ml, geomDf) ->
+    # Necessary for WKT to recognize the geometry as a polygon.
+    c3ml.type = 'polygon'
+    wktPromise = WKT.fromC3ml(c3ml)
+    wktPromise.then (wkt) ->
+      geomArgs = null
+      if wkt then geomArgs = {footprint: wkt}
+      geomDf.resolve(geomArgs)
+    wktPromise.fail(geomDf.reject)
+
+  _geometryFromC3mlCollection: (c3ml, geomDf) ->
+    # Ignore collection since it only contains children c3ml IDs.
+    geomDf.resolve(null)
+
+  _geometryFromC3mlFeature: (c3ml, geomDf) ->
+    forms = c3ml.forms
+    if _.isEmpty(forms)
+      geomDf.resolve(null)
+      return
+    formDfs = []
+    _.each forms, (form, formType) =>
+      formDf = Q.defer()
+      if Types.isString(form)
+        # TODO(aramk) Find the form in the c3ml.
+        Logger.error('Cannot support forms by ID yet', c3ml)
+        return
+      form.geoLocation ?= c3ml.geoLocation
+      if formType == 'polygon'
+        @_geometryFromC3mlPolygon(form, formDf)
+      else if formType == 'mesh'
+        @_geometryFromC3mlMesh(form, formDf)
+      else
+        Logger.warn('Unhandled form type', formType, c3ml)
+        return
+      formDfs.push(formDf.promise)
+    Q.all(formDfs).then (formGeoms) ->
+      geom = {}
+      _.each formGeoms, (formGeom) -> Setter.merge(geom, formGeom)
+      geomDf.resolve(geom)
+
+  ##################################################################################################
+  # ENTITIES
+  ##################################################################################################
 
   _createEntityFromAsset: (args) ->
     c3ml = args.c3ml
@@ -385,6 +428,7 @@ EntityImporter =
 
   _mapEntity: (doc) -> doc
   _mapTypology: (doc) -> doc
+  _mapGeometry: (geom) -> geom
 
 if Meteor.isServer
 
