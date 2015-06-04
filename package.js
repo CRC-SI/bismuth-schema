@@ -43,7 +43,8 @@ Package.on_use(function(api) {
     'src/Reports.coffee',
     'src/util/EntityUtils.coffee',
     'src/util/LayerUtils.coffee',
-    'src/util/CollectionUtils.coffee'
+    'src/util/CollectionUtils.coffee',
+    'src/util/EntityImporter.coffee'
   ], ['client', 'server']);
   api.addFiles([
     'src/server/projects.coffee',
@@ -66,6 +67,7 @@ Package.on_use(function(api) {
     'Reports',
     'EntityUtils',
     'LayerUtils',
-    'CollectionUtils'
+    'CollectionUtils',
+    'EntityImporter'
   ], ['client', 'server']);
 });
