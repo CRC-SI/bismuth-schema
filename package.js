@@ -25,8 +25,6 @@ Package.on_use(function(api) {
   api.use([
     'session'
   ], 'client')
-  // Using Depends utility is necessary to gain access to asynchronously defined modules.
-  api.imply('aramk:utility');
   api.addFiles([
     'src/Units.coffee',
     'src/util/SchemaUtils.coffee',
@@ -41,10 +39,8 @@ Package.on_use(function(api) {
     'src/Entities.coffee',
     'src/util/ParamUtils.coffee',
     'src/Reports.coffee',
-    'src/util/EntityUtils.coffee',
     'src/util/LayerUtils.coffee',
-    'src/util/CollectionUtils.coffee',
-    'src/util/EntityImporter.coffee'
+    'src/util/CollectionUtils.coffee'
   ], ['client', 'server']);
   api.addFiles([
     'src/server/projects.coffee',
@@ -65,9 +61,7 @@ Package.on_use(function(api) {
     'Entities',
     'ParamUtils',
     'Reports',
-    'EntityUtils',
     'LayerUtils',
-    'CollectionUtils',
-    'EntityImporter'
+    'CollectionUtils'
   ], ['client', 'server']);
 });
