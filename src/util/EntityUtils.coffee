@@ -1,33 +1,11 @@
-####################################################################################################
-# AUXILIARY
-####################################################################################################
-
-displayModeSessionVariable = 'entityDisplayMode'
-
-renderCount = new ReactiveVar(0)
-incrementRenderCount = -> renderCount.set(renderCount.get() + 1)
-decrementRenderCount = -> renderCount.set(renderCount.get() - 1)
-
-renderQueue = null
-resetRenderQueue = -> renderQueue = new DeferredQueueMap()
-
-renderingEnabled = true
-renderingEnabledDf = Q.defer()
-renderingEnabledDf.resolve()
-prevRenderingEnabledDf = null
-
-Meteor.startup ->
-  resetRenderQueue()
-
-####################################################################################################
-# END AUXILIARY
-####################################################################################################
-
 EntityUtils =
+
+  _footprintProperty: 'space.geom_2d'
+  _meshProperty: 'space.geom_3d'
 
   toGeoEntityArgs: (id, args) ->
     df = Q.defer()
-    model = @_getModel(id)
+    model = Entities.findOne(id)
     typeId = SchemaUtils.getParameterValue(model, 'general.type')
     type = Typologies.findOne(typeId)
     typeFillColor = type && SchemaUtils.getParameterValue(type, 'style.fill_color')
@@ -40,7 +18,8 @@ EntityUtils =
         if fill_color and !border_color
           border_color = Colors.darken(fill_color)
         space = model.parameters.space ? {}
-        geom_2d = space.geom_2d
+        entity = Entities.findOne(id)
+        geom_2d = @_getFootprint(entity)
         unless geom_2d
           geom_2d = null
           # throw new Error('No 2D geometry - cannot render entity with ID ' + id)
@@ -77,7 +56,6 @@ EntityUtils =
     args
 
   _getGeometryFromFile: (id, paramId) ->
-    paramId ?= 'geom_3d'
     entity = Entities.findOne(id)
     value = SchemaUtils.getParameterValue(entity, 'space.' + paramId)
     unless value then return Q.resolve(null)
@@ -100,57 +78,60 @@ EntityUtils =
 
   _render2dGeometry: (id) ->
     entity = Entities.findOne(id)
-    geom_2d = SchemaUtils.getParameterValue(entity, 'space.geom_2d')
-    unless geom_2d
+    footprint = @_getFootprint(entity)
+    unless footprint
       return Q.when(null)
     df = Q.defer()
     WKT.getWKT Meteor.bindEnvironment (wkt) =>
-      isWKT = wkt.isWKT(geom_2d)
+      isWKT = wkt.isWKT(footprint)
       if isWKT
         # Hidden by default since we change the display mode to toggle visibility.
         @toGeoEntityArgs(id, {show: false}).then Meteor.bindEnvironment (entityArgs) =>
           geoEntity = AtlasManager.renderEntity(entityArgs)
           df.resolve(geoEntity)
       else
-        @_buildGeometryFromFile(id, 'geom_2d').then(df.resolve, df.reject)
+        @_buildGeometryFromFile(id, @_footprintProperty).then(df.resolve, df.reject)
     df.promise
 
-  _render3dGeometry: (id) -> @_buildGeometryFromFile(id, 'geom_3d')
+  _render3dGeometry: (id) -> @_buildGeometryFromFile(id, @_meshProperty)
 
-  _getModel: (id) -> Entities.findOne(id)
+  _getFootprint: (entity) -> SchemaUtils.getParameterValue(entity, @_footprintProperty)
+
+  _getMesh: (entity) -> SchemaUtils.getParameterValue(entity, @_meshProperty)
 
   enableRendering: (enabled) ->
     return if enabled == renderingEnabled
-    df = renderingEnabledDf
+    df = @renderingEnabledDf
     if enabled
       Logger.debug('Enabling rendering')
-      if prevRenderingEnabledDf
-        prevRenderingEnabledDf.resolve()
-        prevRenderingEnabledDf = null
+      if @prevRenderingEnabledDf
+        @prevRenderingEnabledDf.resolve()
+        @prevRenderingEnabledDf = null
       df.resolve()
     else
       Logger.debug('Disabling rendering')
       # Prevent existing deferred renders from beign rejected by resuming them once rendering is
       # enabled.
       if Q.isPending(df.promise)
-        prevRenderingEnabledDf = df
-      renderingEnabledDf = Q.defer()
+        @prevRenderingEnabledDf = df
+      @renderingEnabledDf = Q.defer()
     renderingEnabled = enabled
+
+  isRenderingEnabled: -> @renderingEnabled
 
   render: (id, args) ->
     df = Q.defer()
-    renderingEnabledDf.promise.then Meteor.bindEnvironment =>
-      renderQueue.add id, => @_render(id, args).then(df.resolve, df.reject)
+    @renderingEnabledDf.promise.then Meteor.bindEnvironment =>
+      @renderQueue.add id, => @_render(id, args).then(df.resolve, df.reject)
     df.promise
 
   _render: (id, args) ->
     df = Q.defer()
-    incrementRenderCount()
-    df.promise.fin -> decrementRenderCount()
-    model = @_getModel(id)
-    space = model.parameters.space
-    geom_2d = space?.geom_2d
-    geom_3d = space?.geom_3d
+    @incrementRenderCount()
+    df.promise.fin => @decrementRenderCount()
+    model = Entities.findOne(id)
+    geom_2d = @_getFootprint(model)
+    geom_3d = @_getFootprint(model)
     isCollection = Entities.getChildren(id).count() > 0
 
     unless geom_2d || geom_3d || isCollection
@@ -236,13 +217,13 @@ EntityUtils =
 
   renderAll: (args) ->
     df = Q.defer()
-    renderingEnabledDf.promise.then Meteor.bindEnvironment =>
+    @renderingEnabledDf.promise.then Meteor.bindEnvironment =>
       # renderDfs = []
       # models = Entities.findByProject().fetch()
       @_chooseDisplayMode()
       # _.each models, (model) => renderDfs.push(@render(model._id))
       # df.resolve(Q.all(renderDfs))
-      promise = renderQueue.add 'bulk', => @_renderBulk(args)
+      promise = @renderQueue.add 'bulk', => @_renderBulk(args)
       df.resolve(promise)
     df.promise
 
@@ -275,7 +256,7 @@ EntityUtils =
 
         displayMode = @getDisplayMode(entity._id)
 
-        geom_2d = SchemaUtils.getParameterValue(entity, 'space.geom_2d')
+        geom_2d = @_getFootprint(entity)
         if geom_2d
           geom2dId = id + '-geom2d'
 
@@ -310,7 +291,7 @@ EntityUtils =
             c3ml.borderColor = border_color
           c3mlEntities.push(c3ml)
         
-        geom_3d = SchemaUtils.getParameterValue(entity, 'space.geom_3d')
+        geom_3d = @_getMesh(entity)
         if geom_3d
           geom3dId = id + '-geom3d'
           try
@@ -368,29 +349,41 @@ EntityUtils =
         else
           # If no entities have geometries, this will fail, so we should zoom to the project if
           # possible.
-          promise = @zoomToEntities()
-          promise.fail(-> ProjectUtils.zoomTo()).done()
+          @zoomToEntities()
       df.reject
     )
     df.promise
 
-  whenRenderingComplete: -> renderQueue.waitForAll()
+  whenRenderingComplete: -> @renderQueue.waitForAll()
 
   _chooseDisplayMode: ->
     geom2dCount = 0
     geom3dCount = 0
-    Entities.findByProject(Projects.getCurrentId()).forEach (entity) ->
-      space = entity.parameters.space ? {}
-      if space.geom_2d
+    Entities.findByProject(Projects.getCurrentId()).forEach (entity) =>
+      footprint = @_getFootprint(entity)
+      mesh = @_getMesh(entity)
+      if footprint
         geom2dCount++
-      if space.geom_3d
+      if mesh
         geom3dCount++
     displayMode = if geom3dCount > geom2dCount then 'mesh' else 'extrusion'
     Session.set(displayModeSessionVariable, displayMode)
 
-  zoomToEntities: ->
-    ids = _.map Entities.findByProject().fetch(), (entity) -> entity._id
-    AtlasManager.zoomToEntities(ids)
+  zoomToEntity: (id) ->
+    geoEntity = AtlasManager.getEntity(id)
+    return unless geoEntity
+    centroid = geoEntity.getCentroid()
+    centroid.elevation = 1000
+    AtlasManager.zoomTo({position: centroid, duration: 1000})
+
+  zoomToEntities: (ids) ->
+    ids ?= Entities.findByProject().map (entity) -> entity._id
+    if ids.length != 0
+      # If no entities have geometries, this will fail, so we should zoom to the project if
+      # possible.
+      AtlasManager.zoomToEntities(ids).fail(-> ProjectUtils.zoomTo()).done()
+    else
+      Q.when(ProjectUtils.zoomTo())
 
   _renderEntity: (id, args) ->
     df = Q.defer()
@@ -406,8 +399,8 @@ EntityUtils =
 
   unrender: (id) ->
     df = Q.defer()
-    renderingEnabledDf.promise.then Meteor.bindEnvironment ->
-      renderQueue.add id, ->
+    @renderingEnabledDf.promise.then Meteor.bindEnvironment =>
+      @renderQueue.add id, ->
         AtlasManager.unrenderEntity(id)
         df.resolve(id)
     df.promise
@@ -439,14 +432,6 @@ EntityUtils =
     entityIds = AtlasManager.getSelectedFeatureIds()
     # Filter GeoEntity objects which are not project entities.
     _.filter entityIds, (id) -> Entities.findOne(id)
-
-  beforeAtlasUnload: ->
-    resetRenderQueue()
-    @resetRenderCount()
-
-  getRenderCount: -> renderCount.get()
-
-  resetRenderCount: -> renderCount.set(0)
 
   getEntitiesAsJson: (args) ->
     args = @_getProjectAndScenarioArgs(args)
@@ -528,6 +513,26 @@ EntityUtils =
         Files.downloadInBrowser(fileId)
       else
         Logger.error('Could not download entities.')
+
+  incrementRenderCount: -> @renderCount.set(@renderCount.get() + 1)
+
+  decrementRenderCount: -> @renderCount.set(@renderCount.get() - 1)
+
+  getRenderCount: -> @renderCount.get()
+
+  resetRenderCount: -> @renderCount.set(0)
+
+  beforeAtlasUnload: -> @reset()
+
+  reset: ->
+    @renderingEnabled = true
+    @renderCount = new ReactiveVar(0)
+    @renderQueue = new DeferredQueueMap()
+    @renderingEnabledDf = Q.defer()
+    @renderingEnabledDf.resolve()
+    @prevRenderingEnabledDf = null
+
+Meteor.startup -> EntityUtils.reset()
 
 WKT.getWKT Meteor.bindEnvironment (wkt) ->
   _.extend EntityUtils,
