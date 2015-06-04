@@ -367,7 +367,7 @@ EntityUtils =
       if mesh
         geom3dCount++
     displayMode = if geom3dCount > geom2dCount then 'mesh' else 'extrusion'
-    Session.set(displayModeSessionVariable, displayMode)
+    Session.set(@displayModeSessionVariable, displayMode)
 
   zoomToEntity: (id) ->
     geoEntity = AtlasManager.getEntity(id)
@@ -558,7 +558,7 @@ WKT.getWKT Meteor.bindEnvironment (wkt) ->
         # we only enable them if 
         formType2d
       else if Meteor.isClient
-        Session.get(displayModeSessionVariable)
+        Session.get(@displayModeSessionVariable)
       else
         # Server-side cannot display anything.
         null
