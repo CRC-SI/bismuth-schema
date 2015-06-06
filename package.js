@@ -28,7 +28,6 @@ Package.on_use(function(api) {
   api.addFiles([
     'src/Units.coffee',
     'src/util/SchemaUtils.coffee',
-    'src/util/ProjectUtils.coffee',
     'src/Projects.coffee',
     'src/util/ScenarioUtils.coffee',
     'src/Scenarios.coffee',
@@ -50,7 +49,6 @@ Package.on_use(function(api) {
   api.export([
     'Units',
     'SchemaUtils',
-    'ProjectUtils',
     'Projects',
     'ScenarioUtils',
     'Scenarios',

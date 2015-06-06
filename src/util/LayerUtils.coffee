@@ -66,7 +66,7 @@ LayerUtils =
           Logger.error('Failed to insert layer', err)
           df.reject(err)
         else
-          Logger.log('Inserted layer with data')
+          Logger.info('Inserted layer with data')
           df.resolve(insertId)
     df.promise
 
