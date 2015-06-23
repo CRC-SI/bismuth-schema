@@ -20,14 +20,14 @@ Package.on_use(function(api) {
     'aramk:utility@0.6.0',
     'matb33:collection-hooks@0.7.6',
     'urbanetic:accounts-ui@0.2.2',
-    'urbanetic:atlas-util@0.3.0'
+    'urbanetic:atlas-util@0.3.0',
+    'urbanetic:bismuth-schema-utility@0.1.0'
   ], ['client', 'server']);
   api.use([
     'session'
   ], 'client')
   api.addFiles([
     'src/Units.coffee',
-    'src/util/SchemaUtils.coffee',
     'src/Projects.coffee',
     'src/util/ScenarioUtils.coffee',
     'src/Scenarios.coffee',
@@ -36,7 +36,6 @@ Package.on_use(function(api) {
     'src/schemas/EntitySchema.coffee',
     'src/Layers.coffee',
     'src/Entities.coffee',
-    'src/util/ParamUtils.coffee',
     'src/Reports.coffee',
     'src/util/LayerUtils.coffee',
     'src/util/CollectionUtils.coffee'
@@ -48,7 +47,6 @@ Package.on_use(function(api) {
   ], ['server']);
   api.export([
     'Units',
-    'SchemaUtils',
     'Projects',
     'ScenarioUtils',
     'Scenarios',
@@ -57,7 +55,6 @@ Package.on_use(function(api) {
     'EntitySchema',
     'Layers',
     'Entities',
-    'ParamUtils',
     'Reports',
     'LayerUtils',
     'CollectionUtils'
