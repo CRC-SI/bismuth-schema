@@ -1,7 +1,7 @@
 Package.describe({
-  name: 'urbanetic:bismuth-schema',
+  name: 'crc4si:bismuth-schema',
   summary: 'Schemas and collections for working with GIS apps.',
-  git: 'https://github.com/urbanetic/bismuth-schema.git',
+  git: 'https://github.com/crc-si/bismuth-schema.git',
   version: '0.1.0'
 });
 
@@ -11,8 +11,8 @@ Package.on_use(function(api) {
     'check',
     'coffeescript',
     'underscore',
-    'reactive-var',
-    'tracker',
+    'reactive-var@1.0.11',
+    'tracker@1.1.3',
     'aldeed:collection2@2.3.1',
     'aldeed:simple-schema@1.1.0',
     'aramk:pubsub@1.5.0',
@@ -20,8 +20,8 @@ Package.on_use(function(api) {
     'aramk:utility@0.6.0',
     'matb33:collection-hooks@0.7.6',
     'urbanetic:accounts-ui@0.2.2',
-    'urbanetic:atlas-util@0.3.0',
-    'urbanetic:bismuth-schema-utility@0.1.0'
+    'crc4si:atlas-util@0.3.0',
+    'crc4si:bismuth-schema-utility@0.1.0'
   ], ['client', 'server']);
   api.use([
     'session'
